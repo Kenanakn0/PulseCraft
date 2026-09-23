@@ -16,6 +16,7 @@ import (
 	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
 	"github.com/Kenanakn0/pulsecraft/server/internal/api"
 	"github.com/Kenanakn0/pulsecraft/server/internal/auth"
+	"github.com/Kenanakn0/pulsecraft/server/internal/clientip"
 	"github.com/Kenanakn0/pulsecraft/server/internal/config"
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
@@ -34,7 +35,13 @@ func main() {
 		slog.Error("geçersiz konfigürasyon", "err", err)
 		os.Exit(1)
 	}
-	slog.Info("konfigürasyon yüklendi", "addr", cfg.ListenAddr, "demo_users", len(demoUsers))
+	trustedProxies, err := clientip.ParseTrustedProxies(cfg.TrustedProxies)
+	if err != nil {
+		slog.Error("geçersiz konfigürasyon", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("konfigürasyon yüklendi", "addr", cfg.ListenAddr, "demo_users", len(demoUsers),
+		"trusted_proxies", len(trustedProxies), "cookie_secure", cfg.CookieSecure)
 
 	// Ctrl+C / SIGTERM gelince iptal edilen context — agent'taki
 	// context.WithCancel + signal.Notify ikilisinin tek çağrılık kısayolu.
@@ -92,7 +99,21 @@ func main() {
 	}
 	go engine.Run(ctx, 30*time.Second)
 
-	a := &api.API{DB: pool, Engine: engine, Pub: pub, Hub: hub}
+	// Oturum iptal listesi ve login rate limit (IP başına dakikada 10 deneme);
+	// ikisinin de süresi dolan kayıtları periyodik temizlenir.
+	denylist := auth.NewDenylist()
+	go denylist.Run(ctx, 10*time.Minute)
+	loginLimiter := auth.NewRateLimiter(10, time.Minute)
+	go loginLimiter.Run(ctx, time.Minute)
+
+	a := &api.API{
+		DB: pool, Engine: engine, Pub: pub, Hub: hub,
+		Tokens:       auth.NewTokenService(cfg.JWTSecret, auth.TokenTTL),
+		Denylist:     denylist,
+		LoginLimiter: loginLimiter,
+		ClientIP:     clientip.New(trustedProxies),
+		CookieSecure: cfg.CookieSecure,
+	}
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: a.Routes()}
 
 	// Sinyal gelince (ctx iptal) sunucuyu, süren istekleri bitirmesi için

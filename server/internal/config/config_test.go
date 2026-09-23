@@ -43,6 +43,35 @@ func TestLoad_JWTSecret(t *testing.T) {
 	}
 }
 
+func TestLoad_CookieSecure(t *testing.T) {
+	tests := []struct {
+		value   string
+		want    bool
+		wantErr bool
+	}{
+		{"", false, false},
+		{"false", false, false},
+		{"true", true, false},
+		{" TRUE ", true, false},
+		{"1", true, false},
+		{"evet", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			t.Setenv("JWT_SECRET", strings.Repeat("s", 32))
+			t.Setenv("COOKIE_SECURE", tt.value)
+
+			cfg, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load() hata = %v, hata beklenen = %v", err, tt.wantErr)
+			}
+			if err == nil && cfg.CookieSecure != tt.want {
+				t.Errorf("CookieSecure = %v, beklenen %v", cfg.CookieSecure, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoad_Defaults(t *testing.T) {
 	t.Setenv("JWT_SECRET", strings.Repeat("s", 32))
 	t.Setenv("PULSECRAFT_LISTEN_ADDR", "")

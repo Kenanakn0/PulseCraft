@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 )
@@ -23,6 +24,15 @@ type Config struct {
 	// DemoUsers: "e-posta:parola:görünen ad;..." biçiminde ham metin
 	// (ayrıştırma auth.ParseDemoUsers'ta). Boş olabilir.
 	DemoUsers string
+
+	// CookieSecure: oturum cookie'sine Secure bayrağı konur (yalnızca HTTPS
+	// üzerinden gönderilir). Yerel HTTP geliştirmede false, HTTPS'te true olmalı.
+	CookieSecure bool
+
+	// TrustedProxies: virgülle ayrılmış CIDR listesi (ham metin; ayrıştırma
+	// clientip.ParseTrustedProxies'te). Sadece bu adreslerden gelen isteklerde
+	// X-Forwarded-For okunur. Boş = hiçbir proxy'ye güvenme.
+	TrustedProxies string
 }
 
 // Load: ortam değişkenlerinden ayarları okur, verilmemişse varsayılan
@@ -37,11 +47,21 @@ func Load() (Config, error) {
 		RedisURL:    envOrDefault("REDIS_URL", "redis://localhost:6379/0"),
 		JWTSecret:   strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		DemoUsers:   os.Getenv("DEMO_USERS"),
+
+		TrustedProxies: os.Getenv("TRUSTED_PROXIES"),
 	}
 
 	// Hata mesajı sırrın kendisini ASLA içermez, sadece uzunluğunu söyler.
 	if n := utf8.RuneCountInString(cfg.JWTSecret); n < minJWTSecretLen {
 		return Config{}, fmt.Errorf("JWT_SECRET tanımlı değil veya çok kısa (%d karakter); en az %d karakter gerekli", n, minJWTSecretLen)
+	}
+
+	if v := strings.TrimSpace(os.Getenv("COOKIE_SECURE")); v != "" {
+		secure, err := strconv.ParseBool(v)
+		if err != nil {
+			return Config{}, fmt.Errorf("COOKIE_SECURE geçersiz (true ya da false olmalı): %q", v)
+		}
+		cfg.CookieSecure = secure
 	}
 
 	return cfg, nil

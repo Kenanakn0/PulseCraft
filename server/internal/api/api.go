@@ -10,6 +10,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
+	"github.com/Kenanakn0/pulsecraft/server/internal/auth"
+	"github.com/Kenanakn0/pulsecraft/server/internal/clientip"
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
@@ -22,6 +24,13 @@ type API struct {
 	Engine *alerting.Engine
 	Pub    *realtime.Publisher
 	Hub    *realtime.Hub
+
+	// Kimlik doğrulama (Evre 4.0)
+	Tokens       *auth.TokenService
+	Denylist     *auth.Denylist
+	LoginLimiter *auth.RateLimiter
+	ClientIP     *clientip.Resolver
+	CookieSecure bool
 }
 
 // Routes: tüm route'ları bir chi.Router üzerinde tanımlar.
@@ -30,6 +39,11 @@ func (a *API) Routes() chi.Router {
 	r.Use(middleware.Logger)
 
 	r.Get("/healthz", a.handleHealthz)
+
+	// Kimlik doğrulama uçları. Diğer route'ların korunması 4.0c'de yapılacak.
+	r.Post("/api/v1/auth/login", a.handleLogin)
+	r.Post("/api/v1/auth/logout", a.handleLogout)
+	r.With(a.requireAuth).Get("/api/v1/auth/me", a.handleMe)
 
 	r.Route("/api/v1/nodes", func(r chi.Router) {
 		r.Post("/", a.handleCreateNode)
