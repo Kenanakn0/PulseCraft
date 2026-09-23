@@ -1,7 +1,12 @@
 # =====================================================================
-# PulseCraft - Altyapı + Core Server
-# Servisler: TimescaleDB (PostgreSQL 16) + Redis + Go server
-# Çalıştırma: C:\dev\pulsecraft\deploy klasöründe -> docker compose up -d
+# PulseCraft - Altyapı + Core Server + nginx
+# Servisler: TimescaleDB (PostgreSQL 16) + Redis + Go server + nginx
+# Çalıştırma: C:\dev\pulsecraft\deploy klasöründe -> docker compose up -d --build
+#
+# Dışarıya (host'a) açılan tek uygulama kapısı nginx'tir (varsayılan
+# http://localhost:8080). Server'ın portu host'a YAYINLANMAZ; ona yalnızca
+# nginx (aynı docker ağından) erişir. db/redis geliştirme araçları için
+# yalnızca loopback'te (127.0.0.1) yayınlanır, LAN'dan görünmez.
 # =====================================================================
 
 name: pulsecraft
@@ -17,7 +22,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
-      - "${DB_PORT:-5432}:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       # Veriler container silinse de kalsın diye kalıcı volume
       - db_data:/var/lib/postgresql/data
@@ -25,6 +30,8 @@ services:
       # Klasörün tamamı değil tek dosya bağlanıyor; böylece image'ın kendi
       # Timescale kurulum script'leri (000_, 001_) silinmez, bizimki onlardan sonra çalışır.
       - ./init/01_schema.sql:/docker-entrypoint-initdb.d/010_schema.sql:ro
+    networks:
+      - pulsecraft
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -38,9 +45,11 @@ services:
     # appendonly: Redis kapansa da verilerini diske yazar
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
+    networks:
+      - pulsecraft
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -60,16 +69,61 @@ services:
     environment:
       # Container içinden servislere adlarıyla (db, redis) erişilir, localhost ile değil.
       # Not: POSTGRES_PASSWORD URL'de özel karakter (@ : / ?) içeriyorsa % ile kodlanmalı.
-      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"
+      REDIS_URL: "redis://redis:6379/0"
       PULSECRAFT_LISTEN_ADDR: ":8080"
-    ports:
-      - "${SERVER_PORT:-8080}:8080"
+      # Zorunlu: tanımsızsa `docker compose up` hemen hata verir (server de zaten
+      # 32 karakterden kısa/boş JWT_SECRET ile başlamaz).
+      JWT_SECRET: "${JWT_SECRET:?JWT_SECRET deploy/.env içinde tanımlı olmalı (en az 32 karakter)}"
+      DEMO_USERS: "${DEMO_USERS:-}"
+      COOKIE_SECURE: "${COOKIE_SECURE:-false}"
+      # X-Forwarded-For YALNIZCA nginx'in sabit adresinden gelen isteklerde okunur
+      # (aşağıdaki ağ tanımıyla eşleşmeli). Geniş bir Docker aralığı yazma: ağ
+      # geçidini (host) de kapsayabilir.
+      TRUSTED_PROXIES: "172.30.10.10"
+    # Host'a yayınlanmaz; yalnızca aynı ağdaki nginx erişir (expose sadece belgeleme amaçlıdır).
+    expose:
+      - "8080"
+    networks:
+      - pulsecraft
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
       interval: 10s
       timeout: 3s
       retries: 5
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: pulsecraft-nginx
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    ports:
+      # Varsayılan olarak yalnızca bu makineden erişilir. LAN'a açmak için
+      # "127.0.0.1:" önekini kaldır (ve önce bir güvenlik değerlendirmesi yap).
+      - "127.0.0.1:${WEB_PORT:-8080}:80"
+    volumes:
+      # Tek dosya yerine klasör bağlanır (Windows'ta tek dosya bağlamada
+      # host'taki değişiklikler container'a yansımayabilir).
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/html:/usr/share/nginx/html:ro
+    networks:
+      pulsecraft:
+        ipv4_address: 172.30.10.10
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+networks:
+  pulsecraft:
+    ipam:
+      config:
+        # Sabit subnet: nginx'in adresi (172.30.10.10) TRUSTED_PROXIES ile eşleşmek zorunda.
+        - subnet: 172.30.10.0/24
+          gateway: 172.30.10.1
 
 volumes:
   db_data:

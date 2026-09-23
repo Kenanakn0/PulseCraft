@@ -112,7 +112,8 @@ type Session struct {
 //
 // Origin kontrolü AÇIK: coder/websocket varsayılan olarak Origin başlığının
 // host'unun isteğin Host başlığıyla aynı olmasını ister (aynı-origin). Reverse
-// proxy Host başlığını korumalıdır (nginx: proxy_set_header Host $host).
+// proxy Host başlığını PORT DAHİL korumalıdır (nginx: proxy_set_header Host
+// $http_host; $host portu atar ve localhost:8080 gibi adreslerde kontrolü bozar).
 func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request, sess Session) {
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
