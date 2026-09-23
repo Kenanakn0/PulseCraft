@@ -12,6 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
 )
 
 // shortRangeThreshold: bu süreden kısa aralıklar ham `metrics` tablosundan,
@@ -78,6 +80,19 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 		// bile isteği başarısız saymaya değmez, sadece logluyoruz.
 		slog.Error("last_seen_at güncellenemedi", "err", err)
 	}
+
+	// Alarm değerlendirmesi: istemci bağlantıyı kesse bile yarım kalmasın diye
+	// iptal edilmeyen bir context kullanıyoruz (context.WithoutCancel, Go 1.21+).
+	alertSamples := make([]alerting.Sample, len(req.Samples))
+	for i, s := range req.Samples {
+		alertSamples[i] = alerting.Sample{
+			Time:        s.Time,
+			CPUPercent:  s.CPUPercent,
+			MemPercent:  s.MemPercent,
+			DiskPercent: s.DiskPercent,
+		}
+	}
+	a.Engine.Evaluate(context.WithoutCancel(r.Context()), nodeID, alertSamples)
 
 	slog.Info("metrikler alındı", "node_id", nodeID, "count", len(req.Samples))
 	w.WriteHeader(http.StatusAccepted)

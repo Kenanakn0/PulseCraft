@@ -8,6 +8,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
 )
 
 // API: tüm HTTP handler'ların paylaştığı bağımlılıkları tutar. C#'taki bir
@@ -15,7 +17,8 @@ import (
 // Go'da DI container yok — bağımlılıkları elle bir struct'a koyup
 // metotları o struct üzerinde tanımlıyoruz.
 type API struct {
-	DB *pgxpool.Pool
+	DB     *pgxpool.Pool
+	Engine *alerting.Engine
 }
 
 // Routes: tüm route'ları bir chi.Router üzerinde tanımlar.
@@ -32,6 +35,15 @@ func (a *API) Routes() chi.Router {
 	})
 
 	r.Post("/api/v1/metrics", a.handleIngestMetrics)
+
+	r.Route("/api/v1/alert-rules", func(r chi.Router) {
+		r.Post("/", a.handleCreateRule)
+		r.Get("/", a.handleListRules)
+		r.Put("/{id}", a.handleUpdateRule)
+		r.Delete("/{id}", a.handleDeleteRule)
+	})
+
+	r.Get("/api/v1/alerts", a.handleListAlerts)
 
 	return r
 }
