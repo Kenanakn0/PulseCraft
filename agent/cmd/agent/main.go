@@ -2,46 +2,58 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/Kenanakn0/pulsecraft/agent/internal/collector"
+	"github.com/Kenanakn0/pulsecraft/agent/internal/config"
+	"github.com/Kenanakn0/pulsecraft/agent/internal/sender"
 )
 
 func main() {
+	// slog.NewTextHandler, log satırlarını "anahtar=değer" formatında basar.
+	// slog.SetDefault ile bunu tüm paketlerin kullandığı varsayılan logger yapıyoruz.
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
+
+	cfg := config.Load()
+	slog.Info("konfigürasyon yüklendi",
+		"server", cfg.ServerURL,
+		"interval", cfg.Interval,
+		"api_key_set", cfg.APIKey != "")
+
 	info := collector.GetHostInfo()
-	fmt.Println(info.String())
+	slog.Info("host bilgisi", "os", info.OS, "arch", info.Arch, "cpus", info.CPUs)
 
 	// info bir değişken (addressable) olduğu için Go otomatik olarak &info alır
 	// ve pointer receiver'lı SetNote orijinal info'yu değiştirir.
 	info.SetNote("ilk ölçüm")
-	fmt.Println(info.String())
+	slog.Info("host bilgisi güncellendi", "note", info.Note)
 
 	// Başarılı senaryo: gerçek disk yolu.
 	diskPath := collector.DiskPath()
 	if err := collector.CheckDiskPath(diskPath); err != nil {
-		fmt.Println("HATA:", err)
+		slog.Error("disk yolu kontrolü başarısız", "err", err)
 	} else {
-		fmt.Printf("Disk yolu bulundu: %s\n", diskPath)
+		slog.Info("disk yolu bulundu", "path", diskPath)
 	}
 
 	// Hatalı senaryo: var olmayan bir yol -> error dönüşünü ve %w ile
 	// sarmalanmış mesajı görmek için kasıtlı olarak yanlış bir yol veriyoruz.
 	if err := collector.CheckDiskPath(`Z:\bu-yol-yok`); err != nil {
-		fmt.Println("HATA (beklenen):", err)
+		slog.Warn("beklenen disk hatası", "err", err)
 	}
 
-	runLoop()
+	runLoop(cfg)
 }
 
 // runLoop: time.Ticker ile periyodik olarak HostInfo basar. Ctrl+C (SIGINT)
 // veya sonlandırma sinyali (SIGTERM) gelince context iptal edilir ve döngü
 // düzgünce (graceful) kapanır. C#'taki CancellationToken + periyodik
 // Task.Delay döngüsüne benzer bir yapı.
-func runLoop() {
+func runLoop(cfg config.Config) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -53,7 +65,7 @@ func runLoop() {
 	// arka planda sinyal bekleyen bir Task gibi düşünülebilir.
 	go func() {
 		<-sigCh
-		fmt.Println("\nKapanış sinyali alındı...")
+		slog.Info("kapanış sinyali alındı")
 		cancel()
 	}()
 
@@ -65,39 +77,52 @@ func runLoop() {
 	// Sample() metodu her tick'te bu örneğin içindeki son ölçümü günceller.
 	netRate := &collector.NetRate{}
 
-	ticker := time.NewTicker(3 * time.Second)
+	// buffered, gönderilemeyen örnekleri saklayıp exponential backoff ile
+	// tekrar deneyen sarmalayıcı. En fazla 1000 örnek tutar.
+	buffered := sender.NewBuffered(sender.New(cfg.ServerURL, cfg.APIKey), 1000)
+
+	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
 
-	fmt.Println("Metrik döngüsü başladı (durdurmak için Ctrl+C)...")
+	slog.Info("metrik döngüsü başladı", "durdurmak_icin", "Ctrl+C")
 
 	for {
 		// select, hangi channel önce hazır olursa onu işler.
 		select {
 		case <-ctx.Done():
-			fmt.Println("Döngü durduruluyor, graceful shutdown tamam.")
+			slog.Info("döngü durduruluyor, graceful shutdown tamam")
 			return
 		case <-ticker.C:
-			printMetrics(netRate)
+			collectAndSend(ctx, netRate, buffered)
 		}
 	}
 }
 
-// printMetrics: tüm metrikleri tek bir collector.Sample içinde toplayıp
-// konsola basar. Görev Yöneticisi'ndeki değerlerle karşılaştırmak için
-// kullanılır.
-func printMetrics(netRate *collector.NetRate) {
+// collectAndSend: bir Sample toplar, loglar, buffer'a ekler ve buffer'ı
+// göndermeyi dener (backoff izin veriyorsa). Sunucu henüz yokken (Evre 3
+// tamamlanana kadar) örnekler buffer'da birikir, backoff süresi katlanarak
+// artar — bu BEKLENEN bir davranıştır.
+func collectAndSend(ctx context.Context, netRate *collector.NetRate, buffered *sender.BufferedSender) {
 	sample, err := collector.Collect(netRate)
 	if err != nil {
-		fmt.Println("HATA (metrik toplama):", err)
+		slog.Error("metrik toplama başarısız", "err", err)
 		return
 	}
 
-	loadStr := "yok (Windows)"
+	loadAttr := slog.String("load1", "yok (Windows)")
 	if sample.Load1 != nil {
-		loadStr = fmt.Sprintf("%.2f", *sample.Load1)
+		loadAttr = slog.Float64("load1", *sample.Load1)
 	}
 
-	fmt.Printf("CPU: %.1f%% | RAM: %.1f%% (%d MB) | Disk: %.1f%% | Net: ↓%d ↑%d B/s | Load1: %s\n",
-		sample.CPUPercent, sample.MemPercent, sample.MemUsedBytes/1024/1024,
-		sample.DiskPercent, sample.NetRxBps, sample.NetTxBps, loadStr)
+	slog.Info("metrik",
+		"cpu_percent", sample.CPUPercent,
+		"mem_percent", sample.MemPercent,
+		"mem_used_mb", sample.MemUsedBytes/1024/1024,
+		"disk_percent", sample.DiskPercent,
+		"net_rx_bps", sample.NetRxBps,
+		"net_tx_bps", sample.NetTxBps,
+		loadAttr)
+
+	buffered.Add(sample)
+	buffered.Flush(ctx)
 }
