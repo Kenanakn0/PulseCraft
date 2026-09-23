@@ -57,6 +57,14 @@ func runLoop() {
 		cancel()
 	}()
 
+	// İlk CPUPercent çağrısının referans noktası yoktur (güvenilmez), bu yüzden
+	// döngü başlamadan bir kez "ısınma" çağrısı yapıp sonucu atıyoruz.
+	_, _ = collector.CPUPercent()
+
+	// netRate, döngü boyunca yaşayan TEK bir NetRate örneği — pointer receiver'lı
+	// Sample() metodu her tick'te bu örneğin içindeki son ölçümü günceller.
+	netRate := &collector.NetRate{}
+
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()
 
@@ -69,7 +77,27 @@ func runLoop() {
 			fmt.Println("Döngü durduruluyor, graceful shutdown tamam.")
 			return
 		case <-ticker.C:
-			fmt.Println(collector.GetHostInfo().String())
+			printMetrics(netRate)
 		}
 	}
+}
+
+// printMetrics: tüm metrikleri tek bir collector.Sample içinde toplayıp
+// konsola basar. Görev Yöneticisi'ndeki değerlerle karşılaştırmak için
+// kullanılır.
+func printMetrics(netRate *collector.NetRate) {
+	sample, err := collector.Collect(netRate)
+	if err != nil {
+		fmt.Println("HATA (metrik toplama):", err)
+		return
+	}
+
+	loadStr := "yok (Windows)"
+	if sample.Load1 != nil {
+		loadStr = fmt.Sprintf("%.2f", *sample.Load1)
+	}
+
+	fmt.Printf("CPU: %.1f%% | RAM: %.1f%% (%d MB) | Disk: %.1f%% | Net: ↓%d ↑%d B/s | Load1: %s\n",
+		sample.CPUPercent, sample.MemPercent, sample.MemUsedBytes/1024/1024,
+		sample.DiskPercent, sample.NetRxBps, sample.NetTxBps, loadStr)
 }
