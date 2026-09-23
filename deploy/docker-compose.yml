@@ -1,6 +1,6 @@
 # =====================================================================
-# PulseCraft - Evre 1 Altyapısı
-# Servisler: TimescaleDB (PostgreSQL 16) + Redis
+# PulseCraft - Altyapı + Core Server
+# Servisler: TimescaleDB (PostgreSQL 16) + Redis + Go server
 # Çalıştırma: C:\dev\pulsecraft\deploy klasöründe -> docker compose up -d
 # =====================================================================
 
@@ -46,6 +46,30 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  server:
+    build:
+      context: ../server
+    container_name: pulsecraft-server
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      # Container içinden servislere adlarıyla (db, redis) erişilir, localhost ile değil.
+      # Not: POSTGRES_PASSWORD URL'de özel karakter (@ : / ?) içeriyorsa % ile kodlanmalı.
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      PULSECRAFT_LISTEN_ADDR: ":8080"
+    ports:
+      - "${SERVER_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
 volumes:
   db_data:
