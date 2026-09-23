@@ -1,0 +1,52 @@
+# =====================================================================
+# PulseCraft - Evre 1 Altyapısı
+# Servisler: TimescaleDB (PostgreSQL 16) + Redis
+# Çalıştırma: C:\dev\pulsecraft\deploy klasöründe -> docker compose up -d
+# =====================================================================
+
+name: pulsecraft
+
+services:
+
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: pulsecraft-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # Veriler container silinse de kalsın diye kalıcı volume
+      - db_data:/var/lib/postgresql/data
+      # Şema dosyası, ilk açılışta otomatik çalışır.
+      # Klasörün tamamı değil tek dosya bağlanıyor; böylece image'ın kendi
+      # Timescale kurulum script'leri (000_, 001_) silinmez, bizimki onlardan sonra çalışır.
+      - ./init/01_schema.sql:/docker-entrypoint-initdb.d/010_schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: pulsecraft-redis
+    restart: unless-stopped
+    # appendonly: Redis kapansa da verilerini diske yazar
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  db_data:
+  redis_data:

@@ -1,0 +1,25 @@
+# --- Gizli bilgiler ---
+.env
+*.env
+!.env.example
+
+# --- Go ---
+/agent/bin/
+/server/bin/
+*.exe
+*.test
+*.out
+coverage.*
+
+# --- Node / Frontend (Evre 4) ---
+node_modules/
+dist/
+build/
+
+# --- Editör / İşletim sistemi ---
+.vscode/
+.idea/
+*.swp
+Thumbs.db
+Desktop.ini
+.DS_Store
