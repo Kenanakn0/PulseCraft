@@ -14,8 +14,7 @@ import (
 )
 
 func main() {
-	// slog.NewTextHandler, log satırlarını "anahtar=değer" formatında basar.
-	// slog.SetDefault ile bunu tüm paketlerin kullandığı varsayılan logger yapıyoruz.
+	
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
 	cfg := config.Load()
