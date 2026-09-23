@@ -179,7 +179,7 @@ func (e *Engine) Evaluate(ctx context.Context, nodeID string, samples []Sample) 
 	// Redis'e yayın, kilit bırakıldıktan sonra yapılır: ağ gecikmesi diğer
 	// agent'ların değerlendirmesini bekletmesin.
 	for _, ev := range events {
-		e.pub.PublishAlert(ctx, ev)
+		e.pub.PublishAlert(ev)
 	}
 }
 

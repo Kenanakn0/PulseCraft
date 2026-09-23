@@ -13,7 +13,7 @@ import (
 
 // clientBuffer: bir istemcinin bekleyen mesaj kuyruğu. Kuyruk dolarsa istemci
 // "yavaş" sayılıp düşürülür — bir yavaş istemci tüm yayını geciktirmesin diye.
-const clientBuffer = 64
+const clientBuffer = 256
 
 type client struct {
 	send chan []byte

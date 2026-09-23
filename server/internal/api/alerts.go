@@ -286,7 +286,7 @@ func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ev.Event = "acknowledged"
-	a.Pub.PublishAlert(context.WithoutCancel(r.Context()), ev)
+	a.Pub.PublishAlert(ev)
 	writeJSON(w, http.StatusOK, ev)
 }
 

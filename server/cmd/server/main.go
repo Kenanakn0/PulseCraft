@@ -60,6 +60,7 @@ func main() {
 	}
 
 	pub := realtime.NewPublisher(rdb)
+	go pub.Run(ctx)
 	hub := realtime.NewHub(rdb)
 	go hub.Run(ctx)
 

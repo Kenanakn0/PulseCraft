@@ -87,7 +87,7 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 	bgCtx := context.WithoutCancel(r.Context())
 
 	alertSamples := make([]alerting.Sample, len(req.Samples))
-	metricEvents := make([]realtime.MetricEvent, len(req.Samples))
+	newest := 0
 	for i, s := range req.Samples {
 		alertSamples[i] = alerting.Sample{
 			Time:        s.Time,
@@ -95,13 +95,22 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 			MemPercent:  s.MemPercent,
 			DiskPercent: s.DiskPercent,
 		}
-		metricEvents[i] = realtime.MetricEvent{
-			NodeID: nodeID, Time: s.Time,
-			CPUPercent: s.CPUPercent, MemPercent: s.MemPercent, MemUsedBytes: s.MemUsedBytes,
-			DiskPercent: s.DiskPercent, NetRxBps: s.NetRxBps, NetTxBps: s.NetTxBps, Load1: s.Load1,
+		if s.Time.After(req.Samples[newest].Time) {
+			newest = i
 		}
 	}
-	a.Pub.PublishMetrics(bgCtx, metricEvents)
+
+	// Canlı yayına istek başına SADECE en yeni örnek gider. Agent, sunucu
+	// kesintisi sonrası yüzlerce birikmiş örneği tek istekte boşaltabilir;
+	// hepsini yayınlamak WebSocket istemci kuyruklarını taşırıp sağlıklı
+	// istemcileri de düşürür. Geçmiş veri zaten REST ile okunuyor, alarm
+	// motoru ise (aşağıda) tüm örnekleri değerlendirmeye devam ediyor.
+	s := req.Samples[newest]
+	a.Pub.PublishMetrics([]realtime.MetricEvent{{
+		NodeID: nodeID, Time: s.Time,
+		CPUPercent: s.CPUPercent, MemPercent: s.MemPercent, MemUsedBytes: s.MemUsedBytes,
+		DiskPercent: s.DiskPercent, NetRxBps: s.NetRxBps, NetTxBps: s.NetTxBps, Load1: s.Load1,
+	}})
 	a.Engine.Evaluate(bgCtx, nodeID, alertSamples)
 
 	slog.Info("metrikler alındı", "node_id", nodeID, "count", len(req.Samples))
