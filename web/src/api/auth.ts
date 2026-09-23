@@ -1,0 +1,17 @@
+import { apiFetch } from './http'
+import type { LoginResponse, MeResponse } from './types'
+
+// Kimlik doğrulama uçları. Üçü de silent401: bu isteklerdeki 401 "oturum yok/parola yanlış"
+// demektir ve çağıran taraf tarafından zaten ele alınır; global "oturum bitti" mesajı gösterilmez.
+export const authApi = {
+  me: (signal?: AbortSignal) => apiFetch<MeResponse>('/api/v1/auth/me', { signal, silent401: true }),
+
+  login: (email: string, password: string) =>
+    apiFetch<LoginResponse>('/api/v1/auth/login', {
+      method: 'POST',
+      body: { email, password },
+      silent401: true,
+    }),
+
+  logout: () => apiFetch<void>('/api/v1/auth/logout', { method: 'POST', silent401: true }),
+}

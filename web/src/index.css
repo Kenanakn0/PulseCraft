@@ -1,0 +1,170 @@
+/* Renkler CSS değişkenleri olarak tanımlı; koyu tema, tarayıcı/işletim sistemi ayarına göre
+   otomatik devreye girer (prefers-color-scheme). */
+:root {
+  color-scheme: light dark;
+
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --text: #1c2330;
+  --muted: #667085;
+  --border: #d9dde5;
+  --primary: #2453d6;
+  --primary-text: #ffffff;
+  --error-bg: #fdecec;
+  --error-text: #a11b1b;
+  --notice-bg: #fff6df;
+  --notice-text: #7a5300;
+  --radius: 10px;
+
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #12151c;
+    --surface: #1b202a;
+    --text: #e7eaf0;
+    --muted: #98a2b3;
+    --border: #2d3442;
+    --primary: #6b8cff;
+    --primary-text: #0d1220;
+    --error-bg: #3a1c1f;
+    --error-text: #ffb4b4;
+    --notice-bg: #3a2f14;
+    --notice-text: #ffd98a;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.5rem;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem;
+}
+
+button {
+  font: inherit;
+  padding: 0.5rem 0.9rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+input {
+  font: inherit;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+label {
+  display: block;
+  margin: 0.9rem 0 0.3rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* --- Giriş sayfası --- */
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 24rem;
+}
+
+.login-card button.primary {
+  width: 100%;
+  margin-top: 1.25rem;
+}
+
+.error,
+.notice {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+}
+
+.error {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.notice {
+  background: var(--notice-bg);
+  color: var(--notice-text);
+}
+
+/* --- Uygulama çerçevesi --- */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  padding: 0.7rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.app-header .spacer {
+  flex: 1;
+}
+
+.app-content {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 1.5rem 1.25rem;
+}
+
+.page-message {
+  padding: 2rem;
+  text-align: center;
+  color: var(--muted);
+}
