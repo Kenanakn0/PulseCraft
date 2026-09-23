@@ -37,4 +37,8 @@ type AlertEvent struct {
 	TriggerValue float64   `json:"trigger_value"`
 	Status       string    `json:"status"`
 	TriggeredAt  time.Time `json:"triggered_at"`
+
+	// AcknowledgedBy: alarmı "incelemeye alan" kullanıcının görünen adı
+	// (yalnızca "acknowledged" olayında dolu).
+	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
 }

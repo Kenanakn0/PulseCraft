@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/Kenanakn0/pulsecraft/server/internal/auth"
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
@@ -200,6 +201,7 @@ type Alert struct {
 	TriggerValue   float64    `json:"trigger_value"`
 	TriggeredAt    time.Time  `json:"triggered_at"`
 	AcknowledgedAt *time.Time `json:"acknowledged_at"`
+	AcknowledgedBy *string    `json:"acknowledged_by"` // görünen ad; incelemeye alınmadıysa null
 	ResolvedAt     *time.Time `json:"resolved_at"`
 }
 
@@ -213,10 +215,11 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := a.DB.Query(r.Context(),
 		`SELECT a.id, a.rule_id, r.name, a.node_id, n.name, a.status, a.trigger_value,
-		        a.triggered_at, a.acknowledged_at, a.resolved_at
+		        a.triggered_at, a.acknowledged_at, u.display_name, a.resolved_at
 		 FROM alerts a
 		 JOIN alert_rules r ON r.id = a.rule_id
 		 JOIN nodes n ON n.id = a.node_id
+		 LEFT JOIN users u ON u.id = a.acknowledged_by
 		 WHERE ($1::text = '' OR a.status = $1::text)
 		 ORDER BY a.triggered_at DESC
 		 LIMIT 200`, status)
@@ -230,7 +233,7 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var al Alert
 		if err := rows.Scan(&al.ID, &al.RuleID, &al.RuleName, &al.NodeID, &al.NodeName, &al.Status,
-			&al.TriggerValue, &al.TriggeredAt, &al.AcknowledgedAt, &al.ResolvedAt); err != nil {
+			&al.TriggerValue, &al.TriggeredAt, &al.AcknowledgedAt, &al.AcknowledgedBy, &al.ResolvedAt); err != nil {
 			a.writeDBError(w, "alarm satırı okunamadı", err)
 			return
 		}
@@ -245,9 +248,15 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 
 // handleAckAlert: "İncelemeye aldım" — sadece 'open' bir alarm 'acknowledged'
 // olabilir. Güncelleme tek atomik UPDATE'tir; iki kişi aynı anda bassa
-// yalnızca biri satırı günceller, diğeri 409 alır.
-// (Kullanıcı girişi Evre 4.2'de gelecek; o zamana dek acknowledged_by NULL kalır.)
+// yalnızca biri satırı günceller, diğeri 409 alır. İncelemeye alan kullanıcı
+// (oturumdaki kullanıcı) acknowledged_by'a yazılır; yanıt ve WS olayı, o
+// kullanıcının görünen adını DB'den okuyarak taşır.
 func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		http.Error(w, "oturum gerekli", http.StatusUnauthorized)
+		return
+	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		http.Error(w, "geçersiz id", http.StatusBadRequest)
@@ -257,15 +266,27 @@ func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	var ev realtime.AlertEvent
 	err = a.DB.QueryRow(r.Context(),
 		`WITH u AS (
-		     UPDATE alerts SET status = 'acknowledged', acknowledged_at = now()
+		     UPDATE alerts SET status = 'acknowledged', acknowledged_at = now(), acknowledged_by = $2
 		     WHERE id = $1 AND status = 'open'
-		     RETURNING id, rule_id, node_id, status, trigger_value, triggered_at
+		     RETURNING id, rule_id, node_id, status, trigger_value, triggered_at, acknowledged_by
 		 )
 		 SELECT u.id, u.rule_id, r.name, r.severity, r.metric, r.threshold,
-		        u.node_id, u.status, u.trigger_value, u.triggered_at
-		 FROM u JOIN alert_rules r ON r.id = u.rule_id`, id,
+		        u.node_id, u.status, u.trigger_value, u.triggered_at, usr.display_name
+		 FROM u
+		 JOIN alert_rules r ON r.id = u.rule_id
+		 JOIN users usr ON usr.id = u.acknowledged_by`, id, claims.UserID,
 	).Scan(&ev.AlertID, &ev.RuleID, &ev.RuleName, &ev.Severity, &ev.Metric, &ev.Threshold,
-		&ev.NodeID, &ev.Status, &ev.TriggerValue, &ev.TriggeredAt)
+		&ev.NodeID, &ev.Status, &ev.TriggerValue, &ev.TriggeredAt, &ev.AcknowledgedBy)
+
+	// 23503 (foreign key): oturumdaki kullanıcı bu arada silinmiş. Token hâlâ
+	// geçerli görünse de artık böyle bir kullanıcı yok; yeniden giriş istenir.
+	// (writeDBError'daki genel 23503 eşlemesi "node bulunamadı" der, burada yanlış olurdu.)
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
+		http.SetCookie(w, a.expiredSessionCookie())
+		http.Error(w, "oturumdaki kullanıcı artık yok, yeniden giriş yapın", http.StatusUnauthorized)
+		return
+	}
 	if errors.Is(err, pgx.ErrNoRows) {
 		var status string
 		err := a.DB.QueryRow(r.Context(), `SELECT status FROM alerts WHERE id = $1`, id).Scan(&status)

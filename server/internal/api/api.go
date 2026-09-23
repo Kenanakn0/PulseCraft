@@ -38,34 +38,59 @@ func (a *API) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 
+	// ---- Oturum GEREKTİRMEYENLER (yalnızca bunlar; başka her şey aşağıdaki grupta) ----
 	r.Get("/healthz", a.handleHealthz)
-
-	// Kimlik doğrulama uçları. Diğer route'ların korunması 4.0c'de yapılacak.
 	r.Post("/api/v1/auth/login", a.handleLogin)
 	r.Post("/api/v1/auth/logout", a.handleLogout)
-	r.With(a.requireAuth).Get("/api/v1/auth/me", a.handleMe)
-
-	r.Route("/api/v1/nodes", func(r chi.Router) {
-		r.Post("/", a.handleCreateNode)
-		r.Get("/", a.handleListNodes)
-		r.Get("/{id}/metrics", a.handleGetNodeMetrics)
-	})
-
+	// Agent'lar oturum değil node API key'iyle (Bearer) kimlik doğrular.
 	r.Post("/api/v1/metrics", a.handleIngestMetrics)
 
-	r.Route("/api/v1/alert-rules", func(r chi.Router) {
-		r.Post("/", a.handleCreateRule)
-		r.Get("/", a.handleListRules)
-		r.Put("/{id}", a.handleUpdateRule)
-		r.Delete("/{id}", a.handleDeleteRule)
+	// ---- Oturum GEREKTİRENLER ----
+	// Yeni bir route'u yanlışlıkla korumasız bırakmamak için hepsi tek grupta;
+	// TestRoutes_OnlyExplicitlyPublicOnesSkipSession bunu zorlar.
+	r.Group(func(r chi.Router) {
+		r.Use(a.requireAuth)
+
+		r.Get("/api/v1/auth/me", a.handleMe)
+
+		r.Route("/api/v1/nodes", func(r chi.Router) {
+			r.Post("/", a.handleCreateNode)
+			r.Get("/", a.handleListNodes)
+			r.Get("/{id}/metrics", a.handleGetNodeMetrics)
+		})
+
+		r.Route("/api/v1/alert-rules", func(r chi.Router) {
+			r.Post("/", a.handleCreateRule)
+			r.Get("/", a.handleListRules)
+			r.Put("/{id}", a.handleUpdateRule)
+			r.Delete("/{id}", a.handleDeleteRule)
+		})
+
+		r.Get("/api/v1/alerts", a.handleListAlerts)
+		r.Post("/api/v1/alerts/{id}/ack", a.handleAckAlert)
+
+		r.Get("/ws", a.handleWS)
 	})
 
-	r.Get("/api/v1/alerts", a.handleListAlerts)
-	r.Post("/api/v1/alerts/{id}/ack", a.handleAckAlert)
-
-	r.Get("/ws", a.Hub.ServeWS)
-
 	return r
+}
+
+// handleWS: oturumu doğrulanmış (requireAuth) isteği WebSocket'e yükseltir.
+// Bağlantı, token'ın süresi dolduğunda ya da logout ile iptal edildiğinde
+// SUNUCU tarafından kapatılır (close code 4401).
+func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
+	claims, ok := auth.ClaimsFromContext(r.Context())
+	if !ok {
+		http.Error(w, "oturum gerekli", http.StatusUnauthorized)
+		return
+	}
+
+	// Watch, requireAuth'taki IsRevoked kontrolüyle yükseltme arasında araya
+	// giren bir logout'u da yakalar (iptal edilmişse channel baştan kapalıdır).
+	revoked, unwatch := a.Denylist.Watch(claims.ID)
+	defer unwatch()
+
+	a.Hub.ServeWS(w, r, realtime.Session{ExpiresAt: claims.ExpiresAt.Time, Revoked: revoked})
 }
 
 // handleHealthz: DB'ye gerçekten ping atarak sunucunun ve veritabanının
