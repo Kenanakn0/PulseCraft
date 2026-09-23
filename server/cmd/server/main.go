@@ -11,10 +11,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
 	"github.com/Kenanakn0/pulsecraft/server/internal/api"
 	"github.com/Kenanakn0/pulsecraft/server/internal/config"
+	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
 func main() {
@@ -41,14 +43,34 @@ func main() {
 	}
 	slog.Info("db bağlantısı doğrulandı")
 
-	engine := alerting.New(pool)
+	redisOpt, err := redis.ParseURL(cfg.RedisURL)
+	if err != nil {
+		slog.Error("geçersiz REDIS_URL", "err", err)
+		os.Exit(1)
+	}
+	rdb := redis.NewClient(redisOpt)
+	defer rdb.Close()
+
+	// Redis'e ulaşılamaması sunucuyu durdurmaz: metrik kaydı ve alarm motoru
+	// çalışmaya devam eder, sadece canlı yayın kesilir (go-redis kendisi yeniden bağlanır).
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		slog.Warn("redis'e ulaşılamadı, canlı yayın çalışmayabilir", "err", err)
+	} else {
+		slog.Info("redis bağlantısı doğrulandı")
+	}
+
+	pub := realtime.NewPublisher(rdb)
+	hub := realtime.NewHub(rdb)
+	go hub.Run(ctx)
+
+	engine := alerting.New(pool, pub)
 	if err := engine.Refresh(ctx); err != nil {
 		slog.Error("alarm kuralları yüklenemedi", "err", err)
 		os.Exit(1)
 	}
 	go engine.Run(ctx, 30*time.Second)
 
-	a := &api.API{DB: pool, Engine: engine}
+	a := &api.API{DB: pool, Engine: engine, Pub: pub, Hub: hub}
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: a.Routes()}
 
 	// Sinyal gelince (ctx iptal) sunucuyu, süren istekleri bitirmesi için

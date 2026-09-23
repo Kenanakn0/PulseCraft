@@ -2,12 +2,16 @@ package alerting
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"slices"
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
 // Rule: alert_rules tablosundaki bir kuralın bellekteki hali.
@@ -53,7 +57,8 @@ type key struct {
 
 // Engine: kuralları bellekte tutar, gelen örnekleri değerlendirir, alarm açar/kapatır.
 type Engine struct {
-	db *pgxpool.Pool
+	db  *pgxpool.Pool
+	pub *realtime.Publisher
 
 	// mu, aşağıdaki alanları korur. Birden fazla agent aynı anda POST attığında
 	// Evaluate eşzamanlı çağrılır; C#'taki lock (obj) { ... } karşılığı.
@@ -63,9 +68,10 @@ type Engine struct {
 	active      map[key]bool      // şu an açık/incelemede alarmı olan (kural, sunucu) çiftleri
 }
 
-func New(db *pgxpool.Pool) *Engine {
+func New(db *pgxpool.Pool, pub *realtime.Publisher) *Engine {
 	return &Engine{
 		db:          db,
+		pub:         pub,
 		breachStart: make(map[key]time.Time),
 		active:      make(map[key]bool),
 	}
@@ -168,8 +174,22 @@ func (e *Engine) loadActiveAlerts(ctx context.Context) (map[key]bool, error) {
 func (e *Engine) Evaluate(ctx context.Context, nodeID string, samples []Sample) {
 	slices.SortFunc(samples, func(a, b Sample) int { return a.Time.Compare(b.Time) })
 
+	events := e.evaluateLocked(ctx, nodeID, samples)
+
+	// Redis'e yayın, kilit bırakıldıktan sonra yapılır: ağ gecikmesi diğer
+	// agent'ların değerlendirmesini bekletmesin.
+	for _, ev := range events {
+		e.pub.PublishAlert(ctx, ev)
+	}
+}
+
+// evaluateLocked: kilidi kendi içinde alıp bırakır (defer sayesinde) ve
+// oluşan alarm olaylarını döndürür.
+func (e *Engine) evaluateLocked(ctx context.Context, nodeID string, samples []Sample) []realtime.AlertEvent {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	var events []realtime.AlertEvent
 
 	for _, s := range samples {
 		for _, r := range e.rules {
@@ -191,47 +211,82 @@ func (e *Engine) Evaluate(ctx context.Context, nodeID string, samples []Sample) 
 				}
 				needed := time.Duration(r.DurationSeconds) * time.Second
 				if !e.active[k] && s.Time.Sub(start) >= needed {
-					e.openAlert(ctx, r, nodeID, value, k)
+					if ev := e.openAlert(ctx, r, nodeID, value, k); ev != nil {
+						events = append(events, *ev)
+					}
 				}
 				continue
 			}
 
 			delete(e.breachStart, k)
 			if e.active[k] {
-				e.resolveAlert(ctx, r, nodeID, k)
+				if ev := e.resolveAlert(ctx, r, nodeID, k); ev != nil {
+					events = append(events, *ev)
+				}
 			}
 		}
 	}
+	return events
 }
 
 // openAlert: kilit tutulurken çağrılır. Partial unique index sayesinde aynı
 // (kural, sunucu) için ikinci bir aktif alarm zaten açılamaz; ON CONFLICT
-// DO NOTHING bu durumu hata saymadan yutar.
-func (e *Engine) openAlert(ctx context.Context, r Rule, nodeID string, value float64, k key) {
-	_, err := e.db.Exec(ctx,
+// DO NOTHING bu durumu hata saymadan yutar. Bu durumda RETURNING satır
+// döndürmez (pgx.ErrNoRows) ve yeni bir olay üretilmez.
+func (e *Engine) openAlert(ctx context.Context, r Rule, nodeID string, value float64, k key) *realtime.AlertEvent {
+	var alertID int64
+	var triggeredAt time.Time
+	err := e.db.QueryRow(ctx,
 		`INSERT INTO alerts (rule_id, node_id, trigger_value) VALUES ($1, $2, $3)
-		 ON CONFLICT DO NOTHING`,
-		r.ID, nodeID, value)
+		 ON CONFLICT DO NOTHING
+		 RETURNING id, triggered_at`,
+		r.ID, nodeID, value).Scan(&alertID, &triggeredAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		e.active[k] = true // zaten açık bir alarm var (ör. restart sonrası)
+		return nil
+	}
 	if err != nil {
 		slog.Error("alarm açılamadı", "rule_id", r.ID, "node_id", nodeID, "err", err)
-		return // active işaretlenmez, sonraki örnekte tekrar denenir
+		return nil // active işaretlenmez, sonraki örnekte tekrar denenir
 	}
+
 	e.active[k] = true
 	slog.Warn("alarm açıldı", "rule", r.Name, "severity", r.Severity,
 		"node_id", nodeID, "metric", r.Metric, "value", value, "threshold", r.Threshold)
+
+	return &realtime.AlertEvent{
+		Event: "opened", AlertID: alertID, RuleID: r.ID, RuleName: r.Name, NodeID: nodeID,
+		Severity: r.Severity, Metric: r.Metric, Threshold: r.Threshold,
+		TriggerValue: value, Status: "open", TriggeredAt: triggeredAt,
+	}
 }
 
-func (e *Engine) resolveAlert(ctx context.Context, r Rule, nodeID string, k key) {
-	_, err := e.db.Exec(ctx,
+func (e *Engine) resolveAlert(ctx context.Context, r Rule, nodeID string, k key) *realtime.AlertEvent {
+	var alertID int64
+	var triggerValue float64
+	var triggeredAt time.Time
+	err := e.db.QueryRow(ctx,
 		`UPDATE alerts SET status = 'resolved', resolved_at = now()
-		 WHERE rule_id = $1 AND node_id = $2 AND status IN ('open', 'acknowledged')`,
-		r.ID, nodeID)
+		 WHERE rule_id = $1 AND node_id = $2 AND status IN ('open', 'acknowledged')
+		 RETURNING id, trigger_value, triggered_at`,
+		r.ID, nodeID).Scan(&alertID, &triggerValue, &triggeredAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		delete(e.active, k) // DB'de zaten aktif alarm yokmuş
+		return nil
+	}
 	if err != nil {
 		slog.Error("alarm kapatılamadı", "rule_id", r.ID, "node_id", nodeID, "err", err)
-		return
+		return nil
 	}
+
 	delete(e.active, k)
 	slog.Info("alarm çözüldü", "rule", r.Name, "node_id", nodeID)
+
+	return &realtime.AlertEvent{
+		Event: "resolved", AlertID: alertID, RuleID: r.ID, RuleName: r.Name, NodeID: nodeID,
+		Severity: r.Severity, Metric: r.Metric, Threshold: r.Threshold,
+		TriggerValue: triggerValue, Status: "resolved", TriggeredAt: triggeredAt,
+	}
 }
 
 func breached(value float64, operator string, threshold float64) bool {

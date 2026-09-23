@@ -13,6 +13,8 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+
+	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
 var (
@@ -239,6 +241,53 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, alerts)
+}
+
+// handleAckAlert: "İncelemeye aldım" — sadece 'open' bir alarm 'acknowledged'
+// olabilir. Güncelleme tek atomik UPDATE'tir; iki kişi aynı anda bassa
+// yalnızca biri satırı günceller, diğeri 409 alır.
+// (Kullanıcı girişi Evre 4.2'de gelecek; o zamana dek acknowledged_by NULL kalır.)
+func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil {
+		http.Error(w, "geçersiz id", http.StatusBadRequest)
+		return
+	}
+
+	var ev realtime.AlertEvent
+	err = a.DB.QueryRow(r.Context(),
+		`WITH u AS (
+		     UPDATE alerts SET status = 'acknowledged', acknowledged_at = now()
+		     WHERE id = $1 AND status = 'open'
+		     RETURNING id, rule_id, node_id, status, trigger_value, triggered_at
+		 )
+		 SELECT u.id, u.rule_id, r.name, r.severity, r.metric, r.threshold,
+		        u.node_id, u.status, u.trigger_value, u.triggered_at
+		 FROM u JOIN alert_rules r ON r.id = u.rule_id`, id,
+	).Scan(&ev.AlertID, &ev.RuleID, &ev.RuleName, &ev.Severity, &ev.Metric, &ev.Threshold,
+		&ev.NodeID, &ev.Status, &ev.TriggerValue, &ev.TriggeredAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		var status string
+		err := a.DB.QueryRow(r.Context(), `SELECT status FROM alerts WHERE id = $1`, id).Scan(&status)
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "alarm bulunamadı", http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			a.writeDBError(w, "alarm okunamadı", err)
+			return
+		}
+		http.Error(w, "alarm zaten '"+status+"' durumunda", http.StatusConflict)
+		return
+	}
+	if err != nil {
+		a.writeDBError(w, "alarm güncellenemedi", err)
+		return
+	}
+
+	ev.Event = "acknowledged"
+	a.Pub.PublishAlert(context.WithoutCancel(r.Context()), ev)
+	writeJSON(w, http.StatusOK, ev)
 }
 
 // refreshEngine: kural değişince motorun bellek cache'ini hemen yeniler.

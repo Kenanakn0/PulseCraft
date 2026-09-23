@@ -6,6 +6,7 @@ import "os"
 type Config struct {
 	ListenAddr  string
 	DatabaseURL string
+	RedisURL    string
 }
 
 // Load: ortam değişkenlerinden ayarları okur, verilmemişse varsayılan
@@ -16,6 +17,7 @@ func Load() Config {
 	return Config{
 		ListenAddr:  envOrDefault("PULSECRAFT_LISTEN_ADDR", ":8080"),
 		DatabaseURL: envOrDefault("DATABASE_URL", "postgres://pulsecraft:degistir_beni@localhost:5432/pulsecraft?sslmode=disable"),
+		RedisURL:    envOrDefault("REDIS_URL", "redis://localhost:6379/0"),
 	}
 }
 

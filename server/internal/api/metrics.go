@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
+	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
 // shortRangeThreshold: bu süreden kısa aralıklar ham `metrics` tablosundan,
@@ -83,7 +84,10 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 
 	// Alarm değerlendirmesi: istemci bağlantıyı kesse bile yarım kalmasın diye
 	// iptal edilmeyen bir context kullanıyoruz (context.WithoutCancel, Go 1.21+).
+	bgCtx := context.WithoutCancel(r.Context())
+
 	alertSamples := make([]alerting.Sample, len(req.Samples))
+	metricEvents := make([]realtime.MetricEvent, len(req.Samples))
 	for i, s := range req.Samples {
 		alertSamples[i] = alerting.Sample{
 			Time:        s.Time,
@@ -91,8 +95,14 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 			MemPercent:  s.MemPercent,
 			DiskPercent: s.DiskPercent,
 		}
+		metricEvents[i] = realtime.MetricEvent{
+			NodeID: nodeID, Time: s.Time,
+			CPUPercent: s.CPUPercent, MemPercent: s.MemPercent, MemUsedBytes: s.MemUsedBytes,
+			DiskPercent: s.DiskPercent, NetRxBps: s.NetRxBps, NetTxBps: s.NetTxBps, Load1: s.Load1,
+		}
 	}
-	a.Engine.Evaluate(context.WithoutCancel(r.Context()), nodeID, alertSamples)
+	a.Pub.PublishMetrics(bgCtx, metricEvents)
+	a.Engine.Evaluate(bgCtx, nodeID, alertSamples)
 
 	slog.Info("metrikler alındı", "node_id", nodeID, "count", len(req.Samples))
 	w.WriteHeader(http.StatusAccepted)

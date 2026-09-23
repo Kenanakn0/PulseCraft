@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
+	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
 // API: tüm HTTP handler'ların paylaştığı bağımlılıkları tutar. C#'taki bir
@@ -19,6 +20,8 @@ import (
 type API struct {
 	DB     *pgxpool.Pool
 	Engine *alerting.Engine
+	Pub    *realtime.Publisher
+	Hub    *realtime.Hub
 }
 
 // Routes: tüm route'ları bir chi.Router üzerinde tanımlar.
@@ -44,6 +47,9 @@ func (a *API) Routes() chi.Router {
 	})
 
 	r.Get("/api/v1/alerts", a.handleListAlerts)
+	r.Post("/api/v1/alerts/{id}/ack", a.handleAckAlert)
+
+	r.Get("/ws", a.Hub.ServeWS)
 
 	return r
 }
