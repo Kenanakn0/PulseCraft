@@ -15,6 +15,7 @@ import (
 
 	"github.com/Kenanakn0/pulsecraft/server/internal/alerting"
 	"github.com/Kenanakn0/pulsecraft/server/internal/api"
+	"github.com/Kenanakn0/pulsecraft/server/internal/auth"
 	"github.com/Kenanakn0/pulsecraft/server/internal/config"
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
@@ -22,8 +23,18 @@ import (
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
-	cfg := config.Load()
-	slog.Info("konfigürasyon yüklendi", "addr", cfg.ListenAddr, "database_url_set", cfg.DatabaseURL != "")
+	// Geçersiz konfigürasyonla (ör. eksik/kısa JWT_SECRET) server hiç başlamaz.
+	cfg, err := config.Load()
+	if err != nil {
+		slog.Error("geçersiz konfigürasyon", "err", err)
+		os.Exit(1)
+	}
+	demoUsers, err := auth.ParseDemoUsers(cfg.DemoUsers)
+	if err != nil {
+		slog.Error("geçersiz konfigürasyon", "err", err)
+		os.Exit(1)
+	}
+	slog.Info("konfigürasyon yüklendi", "addr", cfg.ListenAddr, "demo_users", len(demoUsers))
 
 	// Ctrl+C / SIGTERM gelince iptal edilen context — agent'taki
 	// context.WithCancel + signal.Notify ikilisinin tek çağrılık kısayolu.
@@ -42,6 +53,16 @@ func main() {
 		os.Exit(1)
 	}
 	slog.Info("db bağlantısı doğrulandı")
+
+	if err := auth.SeedUsers(ctx, pool, demoUsers); err != nil {
+		slog.Error("demo kullanıcılar kaydedilemedi", "err", err)
+		os.Exit(1)
+	}
+	if len(demoUsers) == 0 {
+		slog.Warn("DEMO_USERS boş: yeni kullanıcı eklenmedi (giriş yapabilecek kullanıcı DB'de yoksa kimse giriş yapamaz)")
+	} else {
+		slog.Info("demo kullanıcılar hazır", "count", len(demoUsers))
+	}
 
 	redisOpt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
