@@ -1,0 +1,15 @@
+# web/Dockerfile için .dockerignore (context = repo kökü). Önce HER ŞEYİ hariç tut, sonra gerekenleri geri al
+# (beyaz liste): server/, agent/, .git, deploy/.env (sırlar) hiçbir zaman derleme context'ine girmez.
+*
+!web
+!deploy/nginx/conf.d
+
+# web/ içinden derlemeye girmemesi gerekenler
+web/node_modules
+web/dist
+web/test-results
+web/playwright-report
+web/e2e
+web/smoke
+web/Dockerfile
+web/Dockerfile.dockerignore
