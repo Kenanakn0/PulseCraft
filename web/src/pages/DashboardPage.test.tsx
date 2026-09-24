@@ -1,6 +1,7 @@
 import { StrictMode } from 'react'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
 import { AuthProvider } from '../auth/AuthProvider'
 import { jsonResponse, meResponse, stubFetch, textResponse } from '../test/fetchStub'
@@ -10,9 +11,11 @@ import { DashboardPage } from './DashboardPage'
 const renderDashboard = () =>
   render(
     <StrictMode>
-      <AuthProvider>
-        <DashboardPage />
-      </AuthProvider>
+      <MemoryRouter>
+        <AuthProvider>
+          <DashboardPage />
+        </AuthProvider>
+      </MemoryRouter>
     </StrictMode>,
   )
 

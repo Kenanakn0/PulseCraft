@@ -20,6 +20,15 @@
   --off-bg: #eceef2;
   --radius: 10px;
 
+  /* Grafik/gösterge renkleri (canvas'a çizildiği için JS okur; bkz. charts/theme.ts) */
+  --series-cpu: #2453d6;
+  --series-mem: #b8590a;
+  --series-rx: #157f3c;
+  --series-tx: #8a3ffc;
+  --gauge-ok: #157f3c;
+  --gauge-warn: #b8790a;
+  --gauge-crit: #c4271f;
+
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
 }
@@ -41,6 +50,14 @@
     --ok-bg: #16301f;
     --off: #98a2b3;
     --off-bg: #262c38;
+
+    --series-cpu: #6b8cff;
+    --series-mem: #f0a35e;
+    --series-rx: #63d68a;
+    --series-tx: #b79bff;
+    --gauge-ok: #63d68a;
+    --gauge-warn: #f0c05e;
+    --gauge-crit: #ff7a70;
   }
 }
 
@@ -202,10 +219,39 @@ label {
   gap: 0.5rem;
 }
 
+.node-card {
+  position: relative; /* tıklama alanını kartın tamamına yaymak için (.node-link::after) */
+}
+
+.node-card:hover {
+  border-color: var(--primary);
+}
+
 .node-name {
   margin: 0;
   font-size: 1.05rem;
   overflow-wrap: anywhere;
+}
+
+.node-link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.node-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius);
+}
+
+.node-link:focus-visible {
+  outline: none;
+}
+
+.node-link:focus-visible::after {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 .node-meta,
@@ -264,6 +310,127 @@ label {
   font-size: 1.05rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+
+/* --- Sunucu detayı --- */
+a {
+  color: var(--primary);
+}
+
+.detail-head {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.detail-head p {
+  margin: 0;
+}
+
+.gauge-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 1rem 0 1.5rem;
+}
+
+.gauge-row.stale {
+  opacity: 0.55;
+}
+
+.gauge {
+  margin: 0;
+  padding: 1rem 1rem 0.75rem;
+  text-align: center;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.gauge-canvas {
+  position: relative;
+  height: 7.5rem; /* yarım daire: kapsayıcının alt yarısı boş kalır */
+}
+
+.gauge-value {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0.4rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.gauge figcaption {
+  margin-top: 0.15rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.detail-toolbar h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.range-selector {
+  display: inline-flex;
+  gap: 0;
+}
+
+.range-selector button {
+  border-radius: 0;
+  margin-left: -1px;
+}
+
+.range-selector button:first-child {
+  border-radius: 8px 0 0 8px;
+  margin-left: 0;
+}
+
+.range-selector button:last-child {
+  border-radius: 0 8px 8px 0;
+}
+
+.range-selector button.active {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-text);
+  font-weight: 600;
+}
+
+.metrics-panel {
+  display: grid;
+  gap: 1rem;
+}
+
+.chart-caption {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.chart-card h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.chart-box {
+  position: relative;
+  height: 16rem; /* Chart.js (maintainAspectRatio: false) bu kapsayıcıya sığar */
+}
+
+@media (max-width: 40rem) {
+  .gauge-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .error-card {

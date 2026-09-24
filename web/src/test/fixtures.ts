@@ -1,4 +1,4 @@
-import type { NodeSummary } from '../api/types'
+import type { AggMetricPoint, MetricsRangeResponse, NodeSummary, RawMetricPoint } from '../api/types'
 
 /** Testlerde kullanılan örnek sunucu; `overrides` ile alanlar değiştirilir. */
 export function makeNode(overrides: Partial<NodeSummary> = {}): NodeSummary {
@@ -24,4 +24,39 @@ export function makeNode(overrides: Partial<NodeSummary> = {}): NodeSummary {
     },
     ...overrides,
   }
+}
+
+export function rawPoint(time: string, overrides: Partial<RawMetricPoint> = {}): RawMetricPoint {
+  return {
+    time,
+    cpu_percent: 10,
+    mem_percent: 20,
+    mem_used_bytes: 1,
+    disk_percent: 30,
+    net_rx_bps: 100,
+    net_tx_bps: 50,
+    ...overrides,
+  }
+}
+
+export function aggPoint(time: string, overrides: Partial<AggMetricPoint> = {}): AggMetricPoint {
+  return {
+    time,
+    cpu_avg: 11,
+    cpu_max: 15,
+    mem_avg: 21,
+    mem_max: 25,
+    disk_avg: 31,
+    net_rx_avg: 110,
+    net_tx_avg: 55,
+    ...overrides,
+  }
+}
+
+export function rawResponse(points: RawMetricPoint[]): MetricsRangeResponse {
+  return { resolution: 'raw', from: '2030-01-01T00:00:00Z', to: '2030-01-01T00:15:00Z', points }
+}
+
+export function aggResponse(points: AggMetricPoint[]): MetricsRangeResponse {
+  return { resolution: '1m', from: '2030-01-01T00:00:00Z', to: '2030-01-01T06:00:00Z', points }
 }

@@ -46,6 +46,40 @@ export interface NodeSummary {
   latest: NodeLatest | null
 }
 
+/** `metrics` tablosundan (ham veri) gelen nokta. */
+export interface RawMetricPoint {
+  time: string
+  cpu_percent: number
+  mem_percent: number
+  mem_used_bytes: number
+  disk_percent: number
+  net_rx_bps: number
+  net_tx_bps: number
+  load1?: number
+}
+
+/** `metrics_1m` özetinden (1 dakikalık ortalama/maksimum) gelen nokta. */
+export interface AggMetricPoint {
+  time: string
+  cpu_avg: number
+  cpu_max: number
+  mem_avg: number
+  mem_max: number
+  disk_avg: number
+  net_rx_avg: number
+  net_tx_avg: number
+}
+
+/**
+ * GET /api/v1/nodes/{id}/metrics yanıtı. `resolution` hangi tablodan okunduğunu söyler ve
+ * `points`'in şeklini belirler (TypeScript'te ayırt edilmiş birleşim / discriminated union:
+ * `resolution` alanına bakınca derleyici doğru nokta tipini bilir; C#'ta bir sınıf hiyerarşisi
+ * + `switch` ifadesi gibi düşünülebilir).
+ */
+export type MetricsRangeResponse =
+  | { resolution: 'raw'; from: string; to: string; points: RawMetricPoint[] }
+  | { resolution: '1m'; from: string; to: string; points: AggMetricPoint[] }
+
 /** GET /api/v1/auth/me yanıtı. */
 export interface MeResponse {
   user: User

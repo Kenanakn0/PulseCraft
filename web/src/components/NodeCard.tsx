@@ -1,11 +1,7 @@
+import { Link } from 'react-router'
 import type { NodeSummary } from '../api/types'
 import { formatAge, formatPercent } from '../nodes/format'
-
-// Bu dosyadaki küçük yardımcı bileşenler dışa aktarılmaz; yalnızca NodeCard dışarıya açık.
-
-function StatusBadge({ online }: { online: boolean }) {
-  return <span className={`badge ${online ? 'online' : 'offline'}`}>{online ? 'Çevrimiçi' : 'Çevrimdışı'}</span>
-}
+import { StatusBadge } from './StatusBadge'
 
 // PROPS: bileşene dışarıdan verilen, bileşenin DEĞİŞTİREMEDİĞİ girdiler (C#/Blazor'da [Parameter]).
 function Metric({ label, value }: { label: string; value: string }) {
@@ -17,7 +13,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
-/** Tek bir sunucunun özet kartı. */
+/** Tek bir sunucunun özet kartı; tıklayınca detay sayfasına gider. */
 export function NodeCard({ node }: { node: NodeSummary }) {
   // Boş/null parçaları ele: hostname ve OS'nin ikisi de yoksa tire göster.
   const meta = [node.hostname, node.os].filter((part): part is string => part !== null && part !== '')
@@ -25,7 +21,13 @@ export function NodeCard({ node }: { node: NodeSummary }) {
   return (
     <article className="card node-card" data-testid="node-card" data-online={node.online}>
       <header className="node-card-head">
-        <h2 className="node-name">{node.name}</h2>
+        <h2 className="node-name">
+          {/* Bağlantı yalnızca başlıkta (ekran okuyucular için tek, anlamlı bir bağlantı); CSS'teki
+              ::after ile tıklama alanı tüm karta yayılır. */}
+          <Link to={`/nodes/${encodeURIComponent(node.id)}`} className="node-link">
+            {node.name}
+          </Link>
+        </h2>
         <StatusBadge online={node.online} />
       </header>
 
