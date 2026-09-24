@@ -36,7 +36,10 @@ type metricSample struct {
 }
 
 type metricsRequest struct {
-	Samples []metricSample `json:"samples"`
+	// Hostname isteğe bağlıdır: agent yalnızca -hostname / PULSECRAFT_HOSTNAME
+	// verildiyse gönderir; varsayılan olarak GÖNDERİLMEZ (gerçek bilgisayar adı sızmasın).
+	Hostname *string        `json:"hostname"`
+	Samples  []metricSample `json:"samples"`
 }
 
 // handleIngestMetrics: Authorization: Bearer <key> ile kimlik doğrular,
@@ -75,8 +78,19 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Geçersiz hostname ölçümleri REDDETMEZ: uyarıyla yok sayılır (nil → COALESCE mevcut değeri korur).
+	var hostname *string
+	if req.Hostname != nil {
+		if h, err := normalizeHostname(*req.Hostname); err != nil {
+			slog.Warn("geçersiz hostname yok sayıldı", "node_id", nodeID, "err", err)
+		} else if h != "" {
+			hostname = &h
+		}
+	}
+
 	if _, err := a.DB.Exec(r.Context(),
-		`UPDATE nodes SET last_seen_at = now() WHERE id = $1`, nodeID); err != nil {
+		`UPDATE nodes SET last_seen_at = now(), hostname = COALESCE($2, hostname) WHERE id = $1`,
+		nodeID, hostname); err != nil {
 		// Metrikler zaten kaydedildi; last_seen_at güncellemesi başarısız olsa
 		// bile isteği başarısız saymaya değmez, sadece logluyoruz.
 		slog.Error("last_seen_at güncellenemedi", "err", err)

@@ -16,16 +16,18 @@ import (
 type Sender struct {
 	serverURL string
 	apiKey    string
+	hostname  string // boşsa gövdede hiç yer almaz (varsayılan)
 	client    *http.Client
 }
 
 // New: bir Sender oluşturur. http.Client, C#'taki HttpClient gibi tek bir
 // örnek olarak yaratılıp tekrar tekrar kullanılmalıdır — bağlantı havuzunu
 // (connection pool) paylaşır, her istekte yeni Client oluşturmak israf olur.
-func New(serverURL, apiKey string) *Sender {
+func New(serverURL, apiKey, hostname string) *Sender {
 	return &Sender{
 		serverURL: serverURL,
 		apiKey:    apiKey,
+		hostname:  hostname,
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
@@ -34,13 +36,16 @@ func New(serverURL, apiKey string) *Sender {
 
 // payload: sunucunun /api/v1/metrics endpoint'inde beklediği JSON gövdesi.
 type payload struct {
-	Samples []collector.Sample `json:"samples"`
+	// omitempty: hostname ayarlanmadıysa alan JSON'da HİÇ bulunmaz (gerçek bilgisayar
+	// adı asla kendiliğinden gönderilmez).
+	Hostname string             `json:"hostname,omitempty"`
+	Samples  []collector.Sample `json:"samples"`
 }
 
 // Send: samples listesini tek bir POST isteğiyle sunucuya gönderir.
 // Sunucuya ulaşılamazsa veya 2xx dışında bir durum kodu dönerse hata döner.
 func (s *Sender) Send(ctx context.Context, samples []collector.Sample) error {
-	body, err := json.Marshal(payload{Samples: samples})
+	body, err := json.Marshal(payload{Hostname: s.hostname, Samples: samples})
 	if err != nil {
 		return fmt.Errorf("gövde json'a çevrilemedi: %w", err)
 	}

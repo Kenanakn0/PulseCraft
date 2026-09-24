@@ -14,14 +14,15 @@ import (
 )
 
 func main() {
-	
+
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
 	cfg := config.Load()
 	slog.Info("konfigürasyon yüklendi",
 		"server", cfg.ServerURL,
 		"interval", cfg.Interval,
-		"api_key_set", cfg.APIKey != "")
+		"api_key_set", cfg.APIKey != "",
+		"hostname_gonderiliyor", cfg.Hostname != "")
 
 	info := collector.GetHostInfo()
 	slog.Info("host bilgisi", "os", info.OS, "arch", info.Arch, "cpus", info.CPUs)
@@ -78,7 +79,7 @@ func runLoop(cfg config.Config) {
 
 	// buffered, gönderilemeyen örnekleri saklayıp exponential backoff ile
 	// tekrar deneyen sarmalayıcı. En fazla 1000 örnek tutar.
-	buffered := sender.NewBuffered(sender.New(cfg.ServerURL, cfg.APIKey), 1000)
+	buffered := sender.NewBuffered(sender.New(cfg.ServerURL, cfg.APIKey, cfg.Hostname), 1000)
 
 	ticker := time.NewTicker(cfg.Interval)
 	defer ticker.Stop()
