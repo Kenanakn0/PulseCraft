@@ -86,3 +86,31 @@ export interface MeResponse {
   /** Oturumun sona ereceği an (ISO 8601). */
   expires_at: string
 }
+
+export type AlertStatus = 'open' | 'acknowledged' | 'resolved'
+export type AlertSeverity = 'info' | 'warning' | 'critical'
+
+/**
+ * Bir alarm satırı: hem GET /api/v1/alerts yanıtındaki bir öğe hem de bir WebSocket alarm olayından
+ * kurulan satır aynı biçimdedir (4.2a: olay alarmın tüm alanlarını taşır).
+ */
+export interface AlertRow {
+  id: number
+  rule_id: number
+  rule_name: string
+  severity: AlertSeverity
+  metric: string
+  operator: string
+  threshold: number
+  node_id: string
+  node_name: string
+  status: AlertStatus
+  trigger_value: number
+  triggered_at: string
+  /** İncelemeye alınmadıysa `null`. */
+  acknowledged_at: string | null
+  /** İncelemeye alanın görünen adı; alınmadıysa `null`. */
+  acknowledged_by: string | null
+  /** Çözülmediyse `null`. */
+  resolved_at: string | null
+}

@@ -1,33 +1,40 @@
-import type { NodeLatest } from '../api/types'
+import type { AlertRow, AlertSeverity, AlertStatus, NodeLatest } from '../api/types'
 
-// /ws üzerinden gelen olaylar (sunucudaki realtime.MetricEvent / AlertEvent ile aynı alan adları).
+// /ws üzerinden gelen olaylar (sunucudaki realtime.MetricEvent / AlertEvent / RuleEvent ile aynı alan adları).
 
 export interface MetricEvent extends NodeLatest {
   type: 'metric'
   node_id: string
 }
 
-export interface AlertEvent {
+/**
+ * Alarm olayı: alarmın TÜM satırını taşır (4.2a), böylece istemci bilmediği bir alarm için REST'e
+ * gitmeden satır kurabilir. `event` yaşam döngüsündeki adımı söyler, `status` alarmın son durumudur.
+ */
+export interface AlertEvent extends AlertRow {
   type: 'alert'
   /** "opened" | "acknowledged" | "resolved" */
   event: string
   alert_id: number
-  rule_id: number
-  rule_name: string
-  node_id: string
-  severity: string
-  metric: string
-  threshold: number
-  trigger_value: number
-  status: string
-  triggered_at: string
-  acknowledged_by?: string
 }
 
-export type RealtimeEvent = MetricEvent | AlertEvent
+/** Bir alarm kuralı silindi: ona bağlı TÜM alarmlar (geçmiş dahil) sunucuda da silindi. */
+export interface RuleEvent {
+  type: 'rule'
+  event: 'deleted'
+  rule_id: number
+}
+
+export type RealtimeEvent = MetricEvent | AlertEvent | RuleEvent
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+const isStr = (v: unknown): v is string => typeof v === 'string'
+const isTime = (v: unknown): v is string => isStr(v) && Number.isFinite(Date.parse(v))
+const isNullableTime = (v: unknown): v is string | null | undefined => v === null || v === undefined || isTime(v)
+
+const STATUSES: readonly string[] = ['open', 'acknowledged', 'resolved'] satisfies AlertStatus[]
+const SEVERITIES: readonly string[] = ['info', 'warning', 'critical'] satisfies AlertSeverity[]
 
 /**
  * Ham WebSocket metnini doğrulanmış bir olaya çevirir; bozuk/bilinmeyen mesajda `null` döner.
@@ -46,9 +53,8 @@ export function parseEvent(raw: unknown): RealtimeEvent | null {
 
   if (data.type === 'metric') {
     if (
-      typeof data.node_id !== 'string' ||
-      typeof data.time !== 'string' ||
-      !Number.isFinite(Date.parse(data.time)) ||
+      !isStr(data.node_id) ||
+      !isTime(data.time) ||
       !isNum(data.cpu_percent) ||
       !isNum(data.mem_percent) ||
       !isNum(data.disk_percent) ||
@@ -73,8 +79,52 @@ export function parseEvent(raw: unknown): RealtimeEvent | null {
   }
 
   if (data.type === 'alert') {
-    if (typeof data.event !== 'string' || !isNum(data.alert_id) || typeof data.node_id !== 'string') return null
-    return data as unknown as AlertEvent
+    if (
+      !isStr(data.event) ||
+      !isNum(data.alert_id) ||
+      !isNum(data.rule_id) ||
+      !isStr(data.rule_name) ||
+      !isStr(data.node_id) ||
+      !isStr(data.node_name) ||
+      !isStr(data.severity) ||
+      !SEVERITIES.includes(data.severity) ||
+      !isStr(data.metric) ||
+      !isStr(data.operator) ||
+      !isNum(data.threshold) ||
+      !isNum(data.trigger_value) ||
+      !isStr(data.status) ||
+      !STATUSES.includes(data.status) ||
+      !isTime(data.triggered_at) ||
+      !isNullableTime(data.acknowledged_at) ||
+      !isNullableTime(data.resolved_at) ||
+      (data.acknowledged_by !== undefined && !isStr(data.acknowledged_by))
+    ) {
+      return null
+    }
+    return {
+      type: 'alert',
+      event: data.event,
+      alert_id: data.alert_id,
+      id: data.alert_id,
+      rule_id: data.rule_id,
+      rule_name: data.rule_name,
+      node_id: data.node_id,
+      node_name: data.node_name,
+      severity: data.severity as AlertSeverity,
+      metric: data.metric,
+      operator: data.operator,
+      threshold: data.threshold,
+      trigger_value: data.trigger_value,
+      status: data.status as AlertStatus,
+      triggered_at: data.triggered_at,
+      acknowledged_at: data.acknowledged_at ?? null,
+      acknowledged_by: data.acknowledged_by ?? null,
+      resolved_at: data.resolved_at ?? null,
+    }
+  }
+
+  if (data.type === 'rule' && data.event === 'deleted' && isNum(data.rule_id)) {
+    return { type: 'rule', event: 'deleted', rule_id: data.rule_id }
   }
 
   return null

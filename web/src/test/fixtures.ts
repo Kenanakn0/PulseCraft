@@ -1,4 +1,4 @@
-import type { AggMetricPoint, MetricsRangeResponse, NodeSummary, RawMetricPoint } from '../api/types'
+import type { AggMetricPoint, AlertRow, MetricsRangeResponse, NodeSummary, RawMetricPoint } from '../api/types'
 
 /** Testlerde kullanılan örnek sunucu; `overrides` ile alanlar değiştirilir. */
 export function makeNode(overrides: Partial<NodeSummary> = {}): NodeSummary {
@@ -59,4 +59,37 @@ export function rawResponse(points: RawMetricPoint[]): MetricsRangeResponse {
 
 export function aggResponse(points: AggMetricPoint[]): MetricsRangeResponse {
   return { resolution: '1m', from: '2030-01-01T00:00:00Z', to: '2030-01-01T06:00:00Z', points }
+}
+
+/** Testlerde kullanılan örnek alarm satırı (`GET /alerts` biçimi). */
+export function makeAlert(overrides: Partial<AlertRow> = {}): AlertRow {
+  return {
+    id: 1,
+    rule_id: 10,
+    rule_name: 'Yüksek CPU',
+    severity: 'critical',
+    metric: 'cpu_percent',
+    operator: '>',
+    threshold: 90,
+    node_id: 'node-1',
+    node_name: 'web-01',
+    status: 'open',
+    trigger_value: 93.2,
+    triggered_at: '2030-01-01T10:00:00Z',
+    acknowledged_at: null,
+    acknowledged_by: null,
+    resolved_at: null,
+    ...overrides,
+  }
+}
+
+/** Sunucunun WebSocket'e yayınladığı alarm olayı (satırın tüm alanları + `type`/`event`/`alert_id`). */
+export function alertEventPayload(overrides: Partial<AlertRow> & { event?: string } = {}) {
+  const { event = 'opened', ...rowOverrides } = overrides
+  const { id, ...row } = makeAlert(rowOverrides)
+  const statusEvent = event
+  const payload: Record<string, unknown> = { type: 'alert', event: statusEvent, alert_id: id, ...row }
+  // Sunucu, alanı yalnızca doluyken gönderir (`omitempty`).
+  if (row.acknowledged_by === null) delete payload.acknowledged_by
+  return payload
 }

@@ -473,3 +473,143 @@ code {
 .live-connecting .live-dot {
   background: #b7791f;
 }
+
+/* --- Gezinme (üst çubuk) --- */
+.main-nav {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.main-nav a {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 8px;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.main-nav a:hover {
+  color: var(--text);
+}
+
+.main-nav a.active {
+  color: var(--text);
+  background: var(--off-bg);
+  font-weight: 600;
+}
+
+.nav-badge {
+  min-width: 1.3rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--gauge-crit);
+  color: #ffffff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.3rem;
+  text-align: center;
+}
+
+/* --- Alarm panosu --- */
+.tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 0 0 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.tabs button {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  padding: 0.5rem 0.9rem;
+  color: var(--muted);
+}
+
+.tabs button.active {
+  border-bottom-color: var(--primary);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.tab-count {
+  margin-left: 0.25rem;
+  padding: 0 0.45rem;
+  border-radius: 999px;
+  background: var(--off-bg);
+  font-size: 0.8rem;
+}
+
+.alert-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.alert-card {
+  border-left: 5px solid var(--off);
+}
+
+.alert-card.sev-critical {
+  border-left-color: var(--gauge-crit);
+}
+
+.alert-card.sev-warning {
+  border-left-color: var(--gauge-warn);
+}
+
+.alert-card.sev-info {
+  border-left-color: var(--primary);
+}
+
+.alert-card p {
+  margin: 0.25rem 0;
+}
+
+.alert-head {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.sev-badge {
+  padding: 0.05rem 0.5rem;
+  border-radius: 999px;
+  background: var(--off-bg);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.sev-critical .sev-badge {
+  background: var(--gauge-crit);
+  color: #ffffff;
+}
+
+.sev-warning .sev-badge {
+  background: var(--gauge-warn);
+  color: #ffffff;
+}
+
+.sev-info .sev-badge {
+  background: var(--primary);
+  color: var(--primary-text);
+}
+
+.alert-actions {
+  margin-top: 0.6rem;
+}
+
+.alert-state {
+  font-weight: 500;
+}
+
+.alert-error {
+  color: var(--error-text);
+}

@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest'
 import App from './App'
 import { apiFetch } from './api/http'
 import { AuthProvider } from './auth/AuthProvider'
+import { alertRoutes } from './test/alertStub'
 import { jsonResponse, meResponse, stubFetch, testUser, textResponse } from './test/fetchStub'
 
 // Adres çubuğunun karşılığı: testte hangi yolda olduğumuzu görmek için.
@@ -28,11 +29,23 @@ function renderApp(initialEntries: Parameters<typeof MemoryRouter>[0]['initialEn
 
 const noSession = () => textResponse('oturum gerekli', 401)
 
-// Panel açılınca GET /nodes çağırdığı için varsayılan olarak boş liste döner; test isterse ezer.
+// Giriş yapılmış çerçeve açılınca GET /nodes ve GET /alerts çağrılır; varsayılan olarak boş liste döner, test isterse ezer.
 const stub = (routes: Parameters<typeof stubFetch>[0]) =>
-  stubFetch({ 'GET /api/v1/nodes': () => jsonResponse([]), ...routes })
+  stubFetch({ 'GET /api/v1/nodes': () => jsonResponse([]), ...alertRoutes(() => []), ...routes })
 
 describe('uygulama akışı', () => {
+  it('üst çubuktaki "Alarmlar" bağlantısı alarm panosunu açar', async () => {
+    stub({ 'GET /api/v1/auth/me': () => jsonResponse(meResponse) })
+    const user = userEvent.setup()
+    renderApp(['/'])
+
+    await user.click(await screen.findByRole('link', { name: 'Alarmlar' }))
+
+    expect(await screen.findByRole('heading', { name: 'Alarmlar' })).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent('/alerts')
+    expect(screen.getByRole('link', { name: 'Alarmlar' })).toHaveAttribute('aria-current', 'page')
+  })
+
   it('oturum kontrolü sürerken "Yükleniyor…" gösterir', async () => {
     stub({ 'GET /api/v1/auth/me': () => new Promise<Response>(() => undefined) }) // hiç yanıtlanmaz
     renderApp()
