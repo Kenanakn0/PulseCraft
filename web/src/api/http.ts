@@ -32,6 +32,11 @@ export function onUnauthorized(listener: Listener): () => void {
   }
 }
 
+/** Oturumun bittiğini dinleyenlere bildirir (HTTP 401 ya da WebSocket kapanış kodu 4401 gibi). */
+export function notifyUnauthorized(): void {
+  for (const listener of unauthorizedListeners) listener()
+}
+
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   /** JSON'a çevrilip gövdeye konur. */
@@ -78,7 +83,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
     const text = (await response.text().catch(() => '')).trim()
 
     if (response.status === 401 && !silent401) {
-      for (const listener of unauthorizedListeners) listener()
+      notifyUnauthorized()
     }
 
     const retryAfter = Number(response.headers.get('Retry-After'))

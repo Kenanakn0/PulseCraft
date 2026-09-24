@@ -13,5 +13,8 @@ export const authApi = {
       silent401: true,
     }),
 
+  /** Sessiz OLMAYAN oturum sorgusu: 401 alırsa global "oturum bitti" bildirimi tetiklenir (WebSocket kopmalarında kullanılır). */
+  probe: (signal?: AbortSignal) => apiFetch<MeResponse>('/api/v1/auth/me', { signal }),
+
   logout: () => apiFetch<void>('/api/v1/auth/logout', { method: 'POST', silent401: true }),
 }

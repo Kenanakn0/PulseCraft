@@ -1,6 +1,8 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { nodesApi } from '../api/nodes'
 import { usePolledResource } from '../nodes/usePolledResource'
+import { useRealtime, useRealtimeEvents } from '../realtime/useRealtime'
+import { appendLive, eventToPoint, mergeLivePoints } from './live'
 import { getRange, type RangeId } from './ranges'
 import { toChartPoints, type ChartPoint } from './series'
 
@@ -27,6 +29,14 @@ export type MetricsState =
 export function useNodeMetrics(nodeId: string, rangeId: RangeId) {
   const range = getRange(rangeId)
 
+  // Canlı noktalar ayrı bir tamponda birikir; REST verisiyle GÖSTERİMDE birleştirilir (aşağıda).
+  const [livePoints, setLivePoints] = useState<readonly ChartPoint[]>([])
+  const { epoch } = useRealtime()
+  useRealtimeEvents((event) => {
+    if (event.type !== 'metric' || event.node_id !== nodeId) return
+    setLivePoints((current) => appendLive(current, eventToPoint(event)))
+  })
+
   const { state, reload } = usePolledResource(
     async (signal) => {
       const response = await nodesApi.metrics(nodeId, range.last, signal)
@@ -39,12 +49,16 @@ export function useNodeMetrics(nodeId: string, rangeId: RangeId) {
     },
     range.pollMs,
     'Ölçümler',
+    epoch, // WebSocket yeniden bağlanınca geçmiş REST'ten yeniden çekilir (kopmada kaçan noktalar tamamlanır)
   )
 
-  const metricsState = useMemo<MetricsState>(
-    () => (state.status === 'ready' ? { status: 'ready', ...state.data, refreshError: state.refreshError } : state),
-    [state],
-  )
+  const metricsState = useMemo<MetricsState>(() => {
+    if (state.status !== 'ready') return state
+    const { points, resolution, from, to } = state.data
+    // Canlı noktalar yalnızca ham veride (15 dk / 1 sa) anlamlı; dakikalık özet grafiğine karıştırılmaz.
+    const merged = resolution === 'raw' ? mergeLivePoints(points, from, to, livePoints) : { points, from, to }
+    return { status: 'ready', ...merged, resolution, refreshError: state.refreshError }
+  }, [state, livePoints])
 
   return { state: metricsState, reload }
 }

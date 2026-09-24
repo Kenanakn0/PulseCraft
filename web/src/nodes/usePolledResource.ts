@@ -18,6 +18,9 @@ function errorMessage(err: unknown, label: string): string {
  * tekrarlar. `T`, çekilen verinin tipidir (C#'taki `Task<T>` / `IAsyncEnumerable<T>` gibi genel tip
  * parametresi). Bileşen ekrandan kalkınca hem bekleyen isteği iptal eder hem zamanlayıcıyı durdurur.
  *
+ * `resyncKey` değişince (ör. WebSocket yeniden bağlandı) yükleme durumuna DÖNMEDEN hemen yeniden çekilir:
+ * ekranda son bilinen veri kalır, taze veri gelince değişir.
+ *
  * ÖNEMLİ: `fetcher` değişse de effect YENİDEN BAŞLAMAZ (en son hâli bir ref'te tutulur). Hangi
  * veriyi çektiğin değişiyorsa (ör. başka bir sunucu, başka aralık) bileşene değişen bir `key`
  * ver: React bileşeni sıfırdan kurar ve durum temiz başlar (C#'ta yeni bir bileşen örneği).
@@ -26,6 +29,7 @@ export function usePolledResource<T>(
   fetcher: (signal: AbortSignal) => Promise<T>,
   intervalMs: number,
   failureLabel: string,
+  resyncKey = 0,
 ) {
   const [state, setState] = useState<Resource<T>>({ status: 'loading' })
 
@@ -64,7 +68,7 @@ export function usePolledResource<T>(
       controller.abort()
       clearTimeout(timer)
     }
-  }, [intervalMs, reloadCount, failureLabel])
+  }, [intervalMs, reloadCount, failureLabel, resyncKey])
 
   const reload = useCallback(() => {
     setState({ status: 'loading' })

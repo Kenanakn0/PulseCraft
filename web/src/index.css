@@ -448,3 +448,28 @@ code {
   border-radius: 4px;
   font-size: 0.9em;
 }
+
+/* Canlı bağlantı göstergesi (üst çubuk) */
+.live-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.live-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--muted);
+}
+.live-open .live-dot {
+  background: var(--ok);
+}
+.live-open {
+  color: var(--ok);
+}
+.live-reconnecting .live-dot,
+.live-connecting .live-dot {
+  background: #b7791f;
+}
