@@ -165,7 +165,10 @@ func (a *API) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Önce motorun kural önbelleği yenilenir (devre dışı/kapsamı değişen kural artık değerlendirilmez,
+	// arada yeni alarm açılamaz), SONRA artık geçerli olmayan aktif alarmlar çözülür.
 	a.refreshEngine(r.Context())
+	a.resolveStaleAlerts(r.Context(), rule)
 	writeJSON(w, http.StatusOK, rule)
 }
 
@@ -173,6 +176,13 @@ func (a *API) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil {
 		http.Error(w, "geçersiz id", http.StatusBadRequest)
+		return
+	}
+
+	// Silmeden ÖNCE aktif alarmlar çözülür ve "resolved" olayı yayınlanır: kural silinince alarm
+	// satırları cascade ile gider, sonradan hangi alarmların açık olduğunu öğrenmek mümkün olmazdı.
+	if _, err := a.Engine.ResolveRuleAlerts(r.Context(), id, nil); err != nil {
+		a.writeDBError(w, "kuralın alarmları çözülemedi", err)
 		return
 	}
 
@@ -187,6 +197,8 @@ func (a *API) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.refreshEngine(r.Context())
+	// Alarm satırları (geçmiş dahil) cascade ile silindi: açık istemciler o kurala ait satırları atsın.
+	a.Pub.PublishRuleDeleted(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -195,6 +207,10 @@ type Alert struct {
 	ID             int64      `json:"id"`
 	RuleID         int64      `json:"rule_id"`
 	RuleName       string     `json:"rule_name"`
+	Severity       string     `json:"severity"`
+	Metric         string     `json:"metric"`
+	Operator       string     `json:"operator"`
+	Threshold      float64    `json:"threshold"`
 	NodeID         string     `json:"node_id"`
 	NodeName       string     `json:"node_name"`
 	Status         string     `json:"status"`
@@ -214,7 +230,8 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := a.DB.Query(r.Context(),
-		`SELECT a.id, a.rule_id, r.name, a.node_id, n.name, a.status, a.trigger_value,
+		`SELECT a.id, a.rule_id, r.name, r.severity, r.metric, r.operator, r.threshold,
+		        a.node_id, n.name, a.status, a.trigger_value,
 		        a.triggered_at, a.acknowledged_at, u.display_name, a.resolved_at
 		 FROM alerts a
 		 JOIN alert_rules r ON r.id = a.rule_id
@@ -232,7 +249,8 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	alerts := []Alert{}
 	for rows.Next() {
 		var al Alert
-		if err := rows.Scan(&al.ID, &al.RuleID, &al.RuleName, &al.NodeID, &al.NodeName, &al.Status,
+		if err := rows.Scan(&al.ID, &al.RuleID, &al.RuleName, &al.Severity, &al.Metric, &al.Operator,
+			&al.Threshold, &al.NodeID, &al.NodeName, &al.Status,
 			&al.TriggerValue, &al.TriggeredAt, &al.AcknowledgedAt, &al.AcknowledgedBy, &al.ResolvedAt); err != nil {
 			a.writeDBError(w, "alarm satırı okunamadı", err)
 			return
@@ -268,15 +286,16 @@ func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 		`WITH u AS (
 		     UPDATE alerts SET status = 'acknowledged', acknowledged_at = now(), acknowledged_by = $2
 		     WHERE id = $1 AND status = 'open'
-		     RETURNING id, rule_id, node_id, status, trigger_value, triggered_at, acknowledged_by
+		     RETURNING id, rule_id, node_id, status, trigger_value, triggered_at, acknowledged_at, acknowledged_by
 		 )
-		 SELECT u.id, u.rule_id, r.name, r.severity, r.metric, r.threshold,
-		        u.node_id, u.status, u.trigger_value, u.triggered_at, usr.display_name
+		 SELECT u.id, u.rule_id, r.name, r.severity, r.metric, r.operator, r.threshold,
+		        u.node_id, n.name, u.status, u.trigger_value, u.triggered_at, u.acknowledged_at, usr.display_name
 		 FROM u
 		 JOIN alert_rules r ON r.id = u.rule_id
+		 JOIN nodes n ON n.id = u.node_id
 		 JOIN users usr ON usr.id = u.acknowledged_by`, id, claims.UserID,
-	).Scan(&ev.AlertID, &ev.RuleID, &ev.RuleName, &ev.Severity, &ev.Metric, &ev.Threshold,
-		&ev.NodeID, &ev.Status, &ev.TriggerValue, &ev.TriggeredAt, &ev.AcknowledgedBy)
+	).Scan(&ev.AlertID, &ev.RuleID, &ev.RuleName, &ev.Severity, &ev.Metric, &ev.Operator, &ev.Threshold,
+		&ev.NodeID, &ev.NodeName, &ev.Status, &ev.TriggerValue, &ev.TriggeredAt, &ev.AcknowledgedAt, &ev.AcknowledgedBy)
 
 	// 23503 (foreign key): oturumdaki kullanıcı bu arada silinmiş. Token hâlâ
 	// geçerli görünse de artık böyle bir kullanıcı yok; yeniden giriş istenir.
@@ -309,6 +328,32 @@ func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	ev.Event = "acknowledged"
 	a.Pub.PublishAlert(ev)
 	writeJSON(w, http.StatusOK, ev)
+}
+
+// resolveStaleAlerts: güncellenen kuralın artık geçerli olmayan aktif alarmlarını çözer.
+//   - Kural devre dışıysa: motor onu değerlendirmez, tüm aktif alarmları çözülür.
+//   - Kural tek bir sunucuya daraltıldıysa: o sunucu DIŞINDAKİ aktif alarmlar çözülür.
+//   - Kural tüm sunucular için etkinse: çözülecek bir şey yok (eşik/süre değişiklikleri sonraki
+//     örnekte motor tarafından zaten değerlendirilir).
+//
+// Hata olursa kural güncellemesi geri alınmaz (yalnızca loglanır): alarmlar bir sonraki
+// devre dışı bırakma/güncellemede yeniden denenir.
+func (a *API) resolveStaleAlerts(ctx context.Context, rule AlertRule) {
+	switch {
+	case !rule.Enabled:
+		// tümü
+	case rule.NodeID != nil:
+		// yalnızca kapsam dışındakiler
+	default:
+		return
+	}
+	var except *string
+	if rule.Enabled {
+		except = rule.NodeID
+	}
+	if _, err := a.Engine.ResolveRuleAlerts(ctx, rule.ID, except); err != nil {
+		slog.Error("kuralın eski alarmları çözülemedi", "rule_id", rule.ID, "err", err)
+	}
 }
 
 // refreshEngine: kural değişince motorun bellek cache'ini hemen yeniler.

@@ -233,14 +233,19 @@ func (e *Engine) evaluateLocked(ctx context.Context, nodeID string, samples []Sa
 // (kural, sunucu) için ikinci bir aktif alarm zaten açılamaz; ON CONFLICT
 // DO NOTHING bu durumu hata saymadan yutar. Bu durumda RETURNING satır
 // döndürmez (pgx.ErrNoRows) ve yeni bir olay üretilmez.
+// Sunucu adı, olay istemcide REST'e gitmeden satır kurabilsin diye aynı sorguda okunur.
 func (e *Engine) openAlert(ctx context.Context, r Rule, nodeID string, value float64, k key) *realtime.AlertEvent {
 	var alertID int64
 	var triggeredAt time.Time
+	var nodeName string
 	err := e.db.QueryRow(ctx,
-		`INSERT INTO alerts (rule_id, node_id, trigger_value) VALUES ($1, $2, $3)
-		 ON CONFLICT DO NOTHING
-		 RETURNING id, triggered_at`,
-		r.ID, nodeID, value).Scan(&alertID, &triggeredAt)
+		`WITH i AS (
+		     INSERT INTO alerts (rule_id, node_id, trigger_value) VALUES ($1, $2, $3)
+		     ON CONFLICT DO NOTHING
+		     RETURNING id, node_id, triggered_at
+		 )
+		 SELECT i.id, i.triggered_at, n.name FROM i JOIN nodes n ON n.id = i.node_id`,
+		r.ID, nodeID, value).Scan(&alertID, &triggeredAt, &nodeName)
 	if errors.Is(err, pgx.ErrNoRows) {
 		e.active[k] = true // zaten açık bir alarm var (ör. restart sonrası)
 		return nil
@@ -255,38 +260,112 @@ func (e *Engine) openAlert(ctx context.Context, r Rule, nodeID string, value flo
 		"node_id", nodeID, "metric", r.Metric, "value", value, "threshold", r.Threshold)
 
 	return &realtime.AlertEvent{
-		Event: "opened", AlertID: alertID, RuleID: r.ID, RuleName: r.Name, NodeID: nodeID,
-		Severity: r.Severity, Metric: r.Metric, Threshold: r.Threshold,
+		Event: "opened", AlertID: alertID, RuleID: r.ID, RuleName: r.Name, NodeID: nodeID, NodeName: nodeName,
+		Severity: r.Severity, Metric: r.Metric, Operator: r.Operator, Threshold: r.Threshold,
 		TriggerValue: value, Status: "open", TriggeredAt: triggeredAt,
 	}
 }
 
-func (e *Engine) resolveAlert(ctx context.Context, r Rule, nodeID string, k key) *realtime.AlertEvent {
-	var alertID int64
-	var triggerValue float64
-	var triggeredAt time.Time
-	err := e.db.QueryRow(ctx,
-		`UPDATE alerts SET status = 'resolved', resolved_at = now()
-		 WHERE rule_id = $1 AND node_id = $2 AND status IN ('open', 'acknowledged')
-		 RETURNING id, trigger_value, triggered_at`,
-		r.ID, nodeID).Scan(&alertID, &triggerValue, &triggeredAt)
-	if errors.Is(err, pgx.ErrNoRows) {
-		delete(e.active, k) // DB'de zaten aktif alarm yokmuş
-		return nil
+// resolvedEventsSQL: aktif (open/acknowledged) alarmları 'resolved' yapar ve her biri için olayın
+// ihtiyaç duyduğu TÜM alanları (kural, sunucu adı, varsa incelemeye alan kullanıcı) döndürür.
+// $1 = kural id, $2 = sunucu id ya da NULL, $3 = true ise $2 dışındaki sunucular, false ise yalnızca $2.
+// (NULL $2: kuralın tüm aktif alarmları.)
+const resolvedEventsSQL = `
+WITH u AS (
+    UPDATE alerts SET status = 'resolved', resolved_at = now()
+    WHERE rule_id = $1
+      AND status IN ('open', 'acknowledged')
+      AND ($2::uuid IS NULL OR (CASE WHEN $3::bool THEN node_id <> $2::uuid ELSE node_id = $2::uuid END))
+    RETURNING id, rule_id, node_id, trigger_value, triggered_at, acknowledged_at, acknowledged_by, resolved_at
+)
+SELECT u.id, u.rule_id, r.name, r.severity, r.metric, r.operator, r.threshold,
+       u.node_id, n.name, u.trigger_value, u.triggered_at, u.acknowledged_at, usr.display_name, u.resolved_at
+FROM u
+JOIN alert_rules r ON r.id = u.rule_id
+JOIN nodes n ON n.id = u.node_id
+LEFT JOIN users usr ON usr.id = u.acknowledged_by
+ORDER BY u.id`
+
+// queryResolved: resolvedEventsSQL'i çalıştırıp olayları kurar (yayınlamaz).
+func (e *Engine) queryResolved(ctx context.Context, ruleID int64, nodeID *string, except bool) ([]realtime.AlertEvent, error) {
+	rows, err := e.db.Query(ctx, resolvedEventsSQL, ruleID, nodeID, except)
+	if err != nil {
+		return nil, err
 	}
+	defer rows.Close()
+
+	var events []realtime.AlertEvent
+	for rows.Next() {
+		var ev realtime.AlertEvent
+		var ackBy *string
+		if err := rows.Scan(&ev.AlertID, &ev.RuleID, &ev.RuleName, &ev.Severity, &ev.Metric, &ev.Operator,
+			&ev.Threshold, &ev.NodeID, &ev.NodeName, &ev.TriggerValue, &ev.TriggeredAt,
+			&ev.AcknowledgedAt, &ackBy, &ev.ResolvedAt); err != nil {
+			return nil, err
+		}
+		if ackBy != nil {
+			ev.AcknowledgedBy = *ackBy
+		}
+		ev.Event, ev.Status = "resolved", "resolved"
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}
+
+func (e *Engine) resolveAlert(ctx context.Context, r Rule, nodeID string, k key) *realtime.AlertEvent {
+	events, err := e.queryResolved(ctx, r.ID, &nodeID, false)
 	if err != nil {
 		slog.Error("alarm kapatılamadı", "rule_id", r.ID, "node_id", nodeID, "err", err)
 		return nil
 	}
 
-	delete(e.active, k)
-	slog.Info("alarm çözüldü", "rule", r.Name, "node_id", nodeID)
-
-	return &realtime.AlertEvent{
-		Event: "resolved", AlertID: alertID, RuleID: r.ID, RuleName: r.Name, NodeID: nodeID,
-		Severity: r.Severity, Metric: r.Metric, Threshold: r.Threshold,
-		TriggerValue: triggerValue, Status: "resolved", TriggeredAt: triggeredAt,
+	delete(e.active, k) // DB'de aktif alarm yoksa da (zaten kapanmış) işaret temizlenir
+	if len(events) == 0 {
+		return nil
 	}
+	slog.Info("alarm çözüldü", "rule", r.Name, "node_id", nodeID)
+	return &events[0]
+}
+
+// ResolveRuleAlerts: bir kuralın aktif alarmlarını çözer ve her biri için "resolved" olayı yayınlar.
+// Kural devre dışı bırakılınca ya da silinmeden önce çağrılır: motor devre dışı kuralı artık
+// değerlendirmediği için bu alarmlar aksi halde sonsuza dek "açık" kalırdı.
+//
+//	exceptNodeID == nil : kuralın TÜM aktif alarmları çözülür.
+//	exceptNodeID != nil : yalnızca O SUNUCUNUN DIŞINDAKİ alarmlar çözülür (kural tek bir sunucuya
+//	                      daraltıldıysa, kapsam dışında kalan sunucuların alarmları takılı kalmasın).
+//
+// Çözülen olayları döndürür. Motorun bellek durumu (active/breachStart) da temizlenir; böylece kural
+// sonradan yeniden etkinleştirilirse yeni alarm normal şekilde açılabilir.
+func (e *Engine) ResolveRuleAlerts(ctx context.Context, ruleID int64, exceptNodeID *string) ([]realtime.AlertEvent, error) {
+	e.mu.Lock()
+	events, err := e.queryResolved(ctx, ruleID, exceptNodeID, true)
+	if err == nil {
+		for _, ev := range events {
+			delete(e.active, key{ruleID: ruleID, nodeID: ev.NodeID})
+		}
+		// Henüz alarm açmamış (süre dolmamış) eşik aşımı kayıtları da temizlenir: aksi halde kapsam
+		// sonradan yeniden genişleyince, izlenmediği dönemden kalan eski başlangıç zamanı süre hesabına
+		// girer ve alarm haksız yere hemen açılırdı.
+		for k := range e.breachStart {
+			if k.ruleID == ruleID && (exceptNodeID == nil || k.nodeID != *exceptNodeID) {
+				delete(e.breachStart, k)
+			}
+		}
+	}
+	e.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// Yayın kilit dışında (Publisher zaten kuyrukla çalışır, yine de kilidi kısa tutuyoruz).
+	for _, ev := range events {
+		e.pub.PublishAlert(ev)
+	}
+	if len(events) > 0 {
+		slog.Info("kuralın aktif alarmları çözüldü", "rule_id", ruleID, "adet", len(events))
+	}
+	return events, nil
 }
 
 func breached(value float64, operator string, threshold float64) bool {

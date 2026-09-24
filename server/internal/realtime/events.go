@@ -31,14 +31,30 @@ type AlertEvent struct {
 	RuleID       int64     `json:"rule_id"`
 	RuleName     string    `json:"rule_name"`
 	NodeID       string    `json:"node_id"`
+	NodeName     string    `json:"node_name"`
 	Severity     string    `json:"severity"`
 	Metric       string    `json:"metric"`
+	Operator     string    `json:"operator"`
 	Threshold    float64   `json:"threshold"`
 	TriggerValue float64   `json:"trigger_value"`
 	Status       string    `json:"status"`
 	TriggeredAt  time.Time `json:"triggered_at"`
 
-	// AcknowledgedBy: alarmı "incelemeye alan" kullanıcının görünen adı
-	// (yalnızca "acknowledged" olayında dolu).
+	// İstemci, olaydan alarm satırını REST'e gitmeden kurabilsin diye olay alarmın TÜM
+	// alanlarını taşır (GET /api/v1/alerts satırıyla aynı bilgi). Henüz olmamış zamanlar null.
+	AcknowledgedAt *time.Time `json:"acknowledged_at"`
+	ResolvedAt     *time.Time `json:"resolved_at"`
+
+	// AcknowledgedBy: alarmı "incelemeye alan" kullanıcının görünen adı. İncelemeye alınmış
+	// alarmın "acknowledged" ve sonradan gelen "resolved" olaylarında dolu, aksi halde JSON'da yok.
 	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
+}
+
+// RuleEvent: alarm kuralıyla ilgili değişiklik. Şimdilik yalnızca "deleted": kural silinince
+// ona bağlı TÜM alarm satırları (geçmiş dahil) veritabanından cascade ile silinir; istemciler
+// bu olayla o kurala ait satırları listelerinden atar.
+type RuleEvent struct {
+	Type   string `json:"type"`  // "rule"
+	Event  string `json:"event"` // "deleted"
+	RuleID int64  `json:"rule_id"`
 }

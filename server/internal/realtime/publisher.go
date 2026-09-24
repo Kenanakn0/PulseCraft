@@ -101,3 +101,13 @@ func (p *Publisher) PublishAlert(ev AlertEvent) {
 	}
 	p.enqueue(job{channel: ChannelAlerts, payloads: [][]byte{payload}})
 }
+
+// PublishRuleDeleted: bir alarm kuralı silindiğinde istemcilere haber verir (bkz. RuleEvent).
+func (p *Publisher) PublishRuleDeleted(ruleID int64) {
+	payload, err := json.Marshal(RuleEvent{Type: "rule", Event: "deleted", RuleID: ruleID})
+	if err != nil {
+		slog.Error("kural olayı json'a çevrilemedi", "err", err)
+		return
+	}
+	p.enqueue(job{channel: ChannelAlerts, payloads: [][]byte{payload}})
+}
