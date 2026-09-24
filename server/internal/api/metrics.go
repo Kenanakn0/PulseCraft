@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -219,7 +220,7 @@ type metricsRangeResponse struct {
 func (a *API) handleGetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	nodeID := chi.URLParam(r, "id")
 
-	from, to, err := parseRange(r)
+	from, to, err := resolveRange(r.URL.Query(), time.Now().UTC())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -231,8 +232,7 @@ func (a *API) handleGetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	if to.Sub(from) <= shortRangeThreshold {
 		points, err := a.queryRawMetrics(r.Context(), nodeID, from, to)
 		if err != nil {
-			slog.Error("ham metrik sorgusu başarısız", "err", err)
-			http.Error(w, "sunucu hatası", http.StatusInternalServerError)
+			a.writeDBError(w, "ham metrik sorgusu başarısız", err)
 			return
 		}
 		resp.Resolution = "raw"
@@ -240,8 +240,7 @@ func (a *API) handleGetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	} else {
 		points, err := a.queryAggregatedMetrics(r.Context(), nodeID, from, to)
 		if err != nil {
-			slog.Error("özet metrik sorgusu başarısız", "err", err)
-			http.Error(w, "sunucu hatası", http.StatusInternalServerError)
+			a.writeDBError(w, "özet metrik sorgusu başarısız", err)
 			return
 		}
 		resp.Resolution = "1m"
@@ -252,24 +251,47 @@ func (a *API) handleGetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// parseRange: "from"/"to" query parametrelerini (RFC3339) ayrıştırır;
-// verilmemişse son 1 saati varsayılan alır.
-func parseRange(r *http.Request) (from, to time.Time, err error) {
-	now := time.Now().UTC()
-	from, to = now.Add(-1*time.Hour), now
+// Aralık sınırları: "last" parametresi için en az/en fazla süre.
+const (
+	minLastRange = time.Minute
+	maxLastRange = 30 * 24 * time.Hour // ham veri saklama süresiyle aynı
+)
 
-	if v := r.URL.Query().Get("from"); v != "" {
+// resolveRange: sorgu aralığını belirler. İKİ biçim vardır ve birlikte kullanılamaz:
+//
+//   - last=15m|1h|6h|24h… (Go süre biçimi): pencere SUNUCU saatine göre "şimdi - last .. şimdi"
+//     olur. Tarayıcı saati yanlış olsa da doğru pencere gelir; arayüz bunu kullanır.
+//   - from/to (RFC3339): mutlak aralık.
+//
+// Hiçbiri verilmezse son 1 saat. now, testlerde sabit bir an verebilmek için parametredir.
+func resolveRange(q url.Values, now time.Time) (from, to time.Time, err error) {
+	if last := q.Get("last"); last != "" {
+		if q.Get("from") != "" || q.Get("to") != "" {
+			return time.Time{}, time.Time{}, errors.New("'last' ile 'from'/'to' birlikte kullanılamaz")
+		}
+		d, perr := time.ParseDuration(last)
+		if perr != nil {
+			return time.Time{}, time.Time{}, fmt.Errorf("geçersiz 'last' (15m, 1h, 24h gibi bir süre bekleniyor): %w", perr)
+		}
+		if d < minLastRange || d > maxLastRange {
+			return time.Time{}, time.Time{}, fmt.Errorf("'last' %s ile %s arasında olmalı", minLastRange, maxLastRange)
+		}
+		return now.Add(-d), now, nil
+	}
+
+	from, to = now.Add(-1*time.Hour), now
+	if v := q.Get("from"); v != "" {
 		if from, err = time.Parse(time.RFC3339, v); err != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("geçersiz 'from' (RFC3339 bekleniyor): %w", err)
 		}
 	}
-	if v := r.URL.Query().Get("to"); v != "" {
+	if v := q.Get("to"); v != "" {
 		if to, err = time.Parse(time.RFC3339, v); err != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("geçersiz 'to' (RFC3339 bekleniyor): %w", err)
 		}
 	}
 	if !to.After(from) {
-		return time.Time{}, time.Time{}, fmt.Errorf("'to', 'from'dan sonra olmalı")
+		return time.Time{}, time.Time{}, errors.New("'to', 'from'dan sonra olmalı")
 	}
 	return from, to, nil
 }
