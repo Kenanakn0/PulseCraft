@@ -27,3 +27,7 @@ build/
 Thumbs.db
 Desktop.ini
 .DS_Store
+
+# --- Oturum çerezi / token dosyaları (asla repoya girmesin) ---
+cookie.txt
+*.cookie
