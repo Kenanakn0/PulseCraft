@@ -28,15 +28,19 @@ function renderApp(initialEntries: Parameters<typeof MemoryRouter>[0]['initialEn
 
 const noSession = () => textResponse('oturum gerekli', 401)
 
+// Panel açılınca GET /nodes çağırdığı için varsayılan olarak boş liste döner; test isterse ezer.
+const stub = (routes: Parameters<typeof stubFetch>[0]) =>
+  stubFetch({ 'GET /api/v1/nodes': () => jsonResponse([]), ...routes })
+
 describe('uygulama akışı', () => {
   it('oturum kontrolü sürerken "Yükleniyor…" gösterir', async () => {
-    stubFetch({ 'GET /api/v1/auth/me': () => new Promise<Response>(() => undefined) }) // hiç yanıtlanmaz
+    stub({ 'GET /api/v1/auth/me': () => new Promise<Response>(() => undefined) }) // hiç yanıtlanmaz
     renderApp()
     expect(await screen.findByText('Yükleniyor…')).toBeInTheDocument()
   })
 
   it('girişsiz korumalı sayfa /login\'e yönlendirir', async () => {
-    stubFetch({ 'GET /api/v1/auth/me': noSession })
+    stub({ 'GET /api/v1/auth/me': noSession })
     renderApp(['/'])
 
     expect(await screen.findByRole('button', { name: 'Giriş yap' })).toBeInTheDocument()
@@ -44,7 +48,7 @@ describe('uygulama akışı', () => {
   })
 
   it('bilinmeyen adres, girişliyken paneli gösterir', async () => {
-    stubFetch({ 'GET /api/v1/auth/me': () => jsonResponse(meResponse) })
+    stub({ 'GET /api/v1/auth/me': () => jsonResponse(meResponse) })
     renderApp(['/yok/boyle/bir/sayfa'])
 
     expect(await screen.findByRole('heading', { name: 'Sunucular' })).toBeInTheDocument()
@@ -52,7 +56,7 @@ describe('uygulama akışı', () => {
   })
 
   it('girişliyken üst çubukta kullanıcı adı görünür, /login paneli açar', async () => {
-    stubFetch({ 'GET /api/v1/auth/me': () => jsonResponse(meResponse) })
+    stub({ 'GET /api/v1/auth/me': () => jsonResponse(meResponse) })
     renderApp(['/login'])
 
     expect(await screen.findByTestId('current-user')).toHaveTextContent('Ada Test')
@@ -60,7 +64,7 @@ describe('uygulama akışı', () => {
   })
 
   it('boş formu göndermek isteği ATMAZ ve uyarı gösterir', async () => {
-    const { calls } = stubFetch({ 'GET /api/v1/auth/me': noSession })
+    const { calls } = stub({ 'GET /api/v1/auth/me': noSession })
     renderApp(['/login'])
     const user = userEvent.setup()
 
@@ -71,7 +75,7 @@ describe('uygulama akışı', () => {
   })
 
   it('yanlış parolada hata gösterir, formda kalır ve alanlar korunur', async () => {
-    stubFetch({
+    stub({
       'GET /api/v1/auth/me': noSession,
       'POST /api/v1/auth/login': () => textResponse('e-posta veya parola hatalı', 401),
     })
@@ -88,7 +92,7 @@ describe('uygulama akışı', () => {
   })
 
   it('429\'da bekleme süresini gösterir', async () => {
-    stubFetch({
+    stub({
       'GET /api/v1/auth/me': noSession,
       'POST /api/v1/auth/login': () => textResponse('çok fazla', 429, { 'Retry-After': '30' }),
     })
@@ -104,7 +108,7 @@ describe('uygulama akışı', () => {
 
   it('istek sürerken düğme devre dışı kalır; başarılı girişte panele geçilir', async () => {
     let finishLogin: (r: Response) => void = () => undefined
-    stubFetch({
+    stub({
       'GET /api/v1/auth/me': noSession,
       'POST /api/v1/auth/login': () => new Promise<Response>((resolve) => (finishLogin = resolve)),
     })
@@ -125,7 +129,7 @@ describe('uygulama akışı', () => {
   })
 
   it('girişten sonra, yönlendirildiği sayfaya (from) döner', async () => {
-    stubFetch({
+    stub({
       'GET /api/v1/auth/me': noSession,
       'POST /api/v1/auth/login': () => jsonResponse({ user: testUser }),
     })
@@ -142,7 +146,7 @@ describe('uygulama akışı', () => {
   })
 
   it('Çıkış: giriş sayfasına döner ve korumalı sayfaya geri dönülemez', async () => {
-    stubFetch({
+    stub({
       'GET /api/v1/auth/me': () => jsonResponse(meResponse),
       'POST /api/v1/auth/logout': () => new Response(null, { status: 204 }),
     })
@@ -156,16 +160,18 @@ describe('uygulama akışı', () => {
   })
 
   it('oturum süresi dolarsa (başka bir istek 401 alırsa) giriş ekranı açıklamayla gelir', async () => {
-    stubFetch({
+    let expired = false
+    stub({
       'GET /api/v1/auth/me': () => jsonResponse(meResponse),
-      'GET /api/v1/nodes': noSession,
+      'GET /api/v1/nodes': () => (expired ? noSession() : jsonResponse([])),
     })
     renderApp(['/'])
-    await screen.findByRole('heading', { name: 'Sunucular' })
+    await screen.findByText('Henüz kayıtlı sunucu yok.') // panel tamamen yüklendi (yükleme durumu geçti)
 
+    expired = true // token bu arada sona erdi
     await apiFetch('/api/v1/nodes').catch(() => undefined) // uygulamanın herhangi bir yerindeki istek
 
-    expect(await screen.findByRole('status')).toHaveTextContent('Oturumunuzun süresi doldu')
+    expect(await screen.findByText(/Oturumunuzun süresi doldu/)).toBeInTheDocument()
     expect(screen.getByTestId('where')).toHaveTextContent('/login')
   })
 })
