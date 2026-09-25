@@ -114,6 +114,31 @@ test.describe('alarm kuralları ekranı (gerçek tarayıcı + gerçek arka uç)'
     await api.dispose()
   })
 
+  test('yalnızca eşik boş bırakılırsa hata görünür, istek gitmez, tablo değişmez (bildirilen sessiz başarısızlık senaryosu)', async ({
+    browser,
+    baseURL,
+  }) => {
+    const { context } = await withSession(browser, baseURL)
+    const page = await context.newPage()
+    const posts: string[] = []
+    page.on('request', (r) => {
+      if (r.method() === 'POST' && r.url().includes('/api/v1/alert-rules')) posts.push(r.url())
+    })
+    await page.goto('/alert-rules')
+
+    const ruleName = uniqueName('e2e-bos-esik')
+    await page.getByLabel('Ad').fill(ruleName)
+    // Sunucu, metrik, koşul, süre, önem varsayılan değerleriyle bırakılıyor; yalnızca eşik boş.
+    await page.getByRole('button', { name: 'Kural ekle' }).click()
+
+    await expect(page.getByRole('alert')).toHaveText('Eşik geçerli bir sayı olmalı.')
+    expect(posts).toHaveLength(0) // istek hiç gönderilmedi
+    await expect(page.getByTestId('rule-row').filter({ hasText: ruleName })).toHaveCount(0)
+    await expect(page.getByLabel('Ad')).toHaveValue(ruleName) // girdi kaybolmadı
+
+    await context.close()
+  })
+
   test('form doğrulaması ve sunucu hatası arayüzde Türkçe gösterilir', async ({ browser, baseURL }) => {
     const { context } = await withSession(browser, baseURL)
     const page = await context.newPage()

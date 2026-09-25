@@ -1,4 +1,4 @@
-import { useState, type SubmitEvent } from 'react'
+import { useEffect, useRef, useState, type SubmitEvent } from 'react'
 import { SEVERITY_LABELS, metricLabel } from '../alerts/format'
 import { rulesApi } from '../api/rules'
 import { ApiError } from '../api/http'
@@ -24,6 +24,17 @@ export function RuleForm({ nodes, onCreated }: RuleFormProps) {
   const [values, setValues] = useState<RuleFormValues>(emptyRuleForm)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Form 7 alanlı bir ızgara: hata en altta, düğmenin hemen üstünde belirir. Formun konumuna göre
+  // görünür alanın dışında kalabilir; hata her ayarlandığında görünüme kaydırılır ve odak alır
+  // (ekran okuyucu hemen okur) — "gönderdim ama hiçbir şey olmadı" hissi bırakmaması için.
+  const errorRef = useRef<HTMLParagraphElement>(null)
+  useEffect(() => {
+    // jsdom (testler) scrollIntoView'ı uygulamaz; typeof kontrolü test ortamında hatasız geçmesini sağlar.
+    if (error !== null && typeof errorRef.current?.scrollIntoView === 'function') {
+      errorRef.current.scrollIntoView({ block: 'nearest' })
+    }
+  }, [error])
 
   const set = <K extends keyof RuleFormValues>(key: K) => (value: RuleFormValues[K]) =>
     setValues((current) => ({ ...current, [key]: value }))
@@ -104,6 +115,7 @@ export function RuleForm({ nodes, onCreated }: RuleFormProps) {
           <input
             id="rule-threshold"
             inputMode="decimal"
+            placeholder="ör. 90"
             value={values.threshold}
             onChange={(e) => set('threshold')(e.target.value)}
             disabled={submitting}
@@ -139,7 +151,7 @@ export function RuleForm({ nodes, onCreated }: RuleFormProps) {
       </div>
 
       {error !== null && (
-        <p className="error" role="alert">
+        <p className="error" role="alert" ref={errorRef} tabIndex={-1}>
           {error}
         </p>
       )}

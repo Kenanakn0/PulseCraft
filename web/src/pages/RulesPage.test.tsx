@@ -78,6 +78,23 @@ describe('RulesPage', () => {
     expect(calls.some((c) => c.method === 'POST')).toBe(false)
   })
 
+  it('form: yalnızca eşik boş bırakılırsa (diğer alanlar dolu) hata görünür ve İSTEK GÖNDERİLMEZ; tablo "Henüz kural yok" kalır (bildirilen sessiz başarısızlık senaryosu)', async () => {
+    const { calls } = stubFetch(rulesRoutes(() => []))
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByText('Henüz kural yok. Yukarıdan bir tane ekleyin.')
+
+    await user.type(screen.getByLabelText('Ad'), 'Test alarmı')
+    await user.selectOptions(screen.getByLabelText('Sunucu'), 'web-01')
+    // Eşik BİLEREK boş bırakılıyor (varsayılan '') — kullanıcının bildirdiği tam senaryo.
+    await user.click(screen.getByRole('button', { name: 'Kural ekle' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Eşik geçerli bir sayı olmalı.')
+    expect(calls.some((c) => c.method === 'POST')).toBe(false) // sessiz değil: istek hiç gitmedi
+    expect(screen.getByText('Henüz kural yok. Yukarıdan bir tane ekleyin.')).toBeInTheDocument() // tablo doğru şekilde değişmedi
+    expect(screen.getByLabelText('Ad')).toHaveValue('Test alarmı') // girilenler kaybolmadı
+  })
+
   it('form: başarılı ekleme sonrası temizlenir ve liste yenilenir', async () => {
     let rules: ReturnType<typeof makeRule>[] = []
     const { calls } = stubFetch({
