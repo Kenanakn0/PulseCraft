@@ -283,6 +283,12 @@ func TestIntegration_AlertEventsCarryFullRowAndRESTHasRuleFields(t *testing.T) {
 	if acked.NodeName != "it-node-yasam-dongusu" || acked.AcknowledgedAt == nil {
 		t.Errorf("ack yanıtı da zengin olmalı: %+v", acked)
 	}
+	if acked.Type != "alert" || acked.Event != "acknowledged" {
+		// Web tarafı ack yanıtını parseEvent'ten geçirebilmek için "type" alanına bakar; boş gelirse
+		// (PublishAlert yalnızca KENDİ kopyasında doldurur, ev değer olarak geçer) istemci normalize eder,
+		// ama sunucu doğru göndermeli.
+		t.Errorf("ack yanıtında type=\"alert\" ve event=\"acknowledged\" olmalı: %+v", acked)
+	}
 
 	// çözülme: ack bilgisi korunur
 	c.sample(nodeID, 0.5)

@@ -325,6 +325,9 @@ func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Not: Pub.PublishAlert kendi İÇİNDEKİ kopyada Type'ı doldurur (ev DEĞER olarak geçer), bu yüzden
+	// REST yanıtı için burada da ayarlanır — aksi halde istemci "type" alanını boş görürdü.
+	ev.Type = "alert"
 	ev.Event = "acknowledged"
 	a.Pub.PublishAlert(ev)
 	writeJSON(w, http.StatusOK, ev)
