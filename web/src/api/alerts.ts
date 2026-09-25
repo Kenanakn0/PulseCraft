@@ -14,9 +14,8 @@ export const alertsApi = {
    */
   acknowledge: async (id: number): Promise<AlertEvent | null> => {
     const body = await apiFetch<unknown>(`/api/v1/alerts/${id}/ack`, { method: 'POST' })
-    // Sunucu ack yanıtında `type` alanını doldurmuyor (yalnızca WebSocket yayınında dolduruyor); ortak
-    // doğrulayıcıdan geçebilmesi için ekleyip aynı parseEvent'ten geçiriyoruz.
-    const event = parseEvent(JSON.stringify({ ...(body as object), type: 'alert' }))
+    // Aynı sıkı doğrulayıcıdan (parseEvent) geçirilir: sunucu yanıtı da WebSocket'teki gibi doğrulanır.
+    const event = parseEvent(JSON.stringify(body))
     return event?.type === 'alert' ? event : null
   },
 }

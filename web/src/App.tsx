@@ -4,6 +4,7 @@ import { AppLayout } from './components/AppLayout'
 import { RequireAuth } from './components/RequireAuth'
 import { AlertsPage } from './pages/AlertsPage'
 import { DashboardPage } from './pages/DashboardPage'
+import { RulesPage } from './pages/RulesPage'
 import { LoginPage } from './pages/LoginPage'
 
 // LAZY YÜKLEME: detay sayfası (ve onunla Chart.js kütüphanesi) yalnızca ilk kez ziyaret edilince
@@ -23,6 +24,7 @@ export default function App() {
         <Route element={<AppLayout />}>
           <Route index element={<DashboardPage />} />
           <Route path="alerts" element={<AlertsPage />} />
+          <Route path="alert-rules" element={<RulesPage />} />
           <Route
             path="nodes/:id"
             element={

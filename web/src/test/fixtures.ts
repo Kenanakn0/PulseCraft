@@ -1,4 +1,4 @@
-import type { AggMetricPoint, AlertRow, MetricsRangeResponse, NodeSummary, RawMetricPoint } from '../api/types'
+import type { AggMetricPoint, AlertRow, AlertRule, MetricsRangeResponse, NodeSummary, RawMetricPoint } from '../api/types'
 
 /** Testlerde kullanılan örnek sunucu; `overrides` ile alanlar değiştirilir. */
 export function makeNode(overrides: Partial<NodeSummary> = {}): NodeSummary {
@@ -92,4 +92,21 @@ export function alertEventPayload(overrides: Partial<AlertRow> & { event?: strin
   // Sunucu, alanı yalnızca doluyken gönderir (`omitempty`).
   if (row.acknowledged_by === null) delete payload.acknowledged_by
   return payload
+}
+
+/** Testlerde kullanılan örnek alarm kuralı. */
+export function makeRule(overrides: Partial<AlertRule> = {}): AlertRule {
+  return {
+    id: 1,
+    name: 'Yüksek CPU',
+    node_id: null,
+    metric: 'cpu_percent',
+    operator: '>',
+    threshold: 90,
+    duration_seconds: 0,
+    severity: 'critical',
+    enabled: true,
+    created_at: '2029-12-01T00:00:00Z',
+    ...overrides,
+  }
 }

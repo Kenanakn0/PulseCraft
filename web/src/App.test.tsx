@@ -34,6 +34,17 @@ const stub = (routes: Parameters<typeof stubFetch>[0]) =>
   stubFetch({ 'GET /api/v1/nodes': () => jsonResponse([]), ...alertRoutes(() => []), ...routes })
 
 describe('uygulama akışı', () => {
+  it('üst çubuktaki "Kurallar" bağlantısı alarm kuralları ekranını açar', async () => {
+    stub({ 'GET /api/v1/auth/me': () => jsonResponse(meResponse) })
+    const user = userEvent.setup()
+    renderApp(['/'])
+
+    await user.click(await screen.findByRole('link', { name: 'Kurallar' }))
+
+    expect(await screen.findByRole('heading', { name: 'Alarm kuralları' })).toBeInTheDocument()
+    expect(screen.getByTestId('where')).toHaveTextContent('/alert-rules')
+  })
+
   it('üst çubuktaki "Alarmlar" bağlantısı alarm panosunu açar', async () => {
     stub({ 'GET /api/v1/auth/me': () => jsonResponse(meResponse) })
     const user = userEvent.setup()

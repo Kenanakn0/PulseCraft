@@ -206,16 +206,15 @@ describe('AlertsProvider', () => {
 
 describe('acknowledge', () => {
   const ackResponse = (overrides: Partial<AlertRow> = {}) =>
-    jsonResponse({
-      ...alertEventPayload({
+    jsonResponse(
+      alertEventPayload({
         event: 'acknowledged',
         status: 'acknowledged',
         acknowledged_by: 'Ada Test',
         acknowledged_at: '2030-01-01T10:05:00Z',
         ...overrides,
       }),
-      type: '', // sunucu ack yanıtında type'ı doldurmuyor
-    })
+    )
 
   it('başarıda satır anında "incelemede" olur (WS olayını beklemeden)', async () => {
     const { calls } = stubFetch({ ...alertRoutes(() => [makeAlert({ id: 1 })]), 'POST /api/v1/alerts/1/ack': () => ackResponse() })

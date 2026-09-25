@@ -114,3 +114,18 @@ export interface AlertRow {
   /** Çözülmediyse `null`. */
   resolved_at: string | null
 }
+
+/** GET/POST/PUT /api/v1/alert-rules'ta bir alarm kuralı. */
+export interface AlertRule {
+  id: number
+  name: string
+  /** `null` = tüm sunucular. */
+  node_id: string | null
+  metric: string
+  operator: string
+  threshold: number
+  duration_seconds: number
+  severity: AlertSeverity
+  enabled: boolean
+  created_at: string
+}

@@ -23,6 +23,7 @@ export function AppLayout() {
                 Sunucular
               </NavLink>
               <AlertsNavLink />
+              <NavLink to="/alert-rules">Kurallar</NavLink>
             </nav>
             <span className="spacer" />
             <LiveIndicator />
