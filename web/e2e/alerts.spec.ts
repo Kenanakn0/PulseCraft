@@ -158,6 +158,7 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
 
     const page = await context.newPage()
     await page.goto('/alerts')
+    await expect(page.getByTestId('live-status')).toHaveText('Canlı') // WS bağlanmadan ölçüm gönderirsek olayı kaçırabilir
     await s.post(50)
     await expect(card(page, s.ruleName)).toBeVisible({ timeout: 4000 })
 
@@ -183,6 +184,7 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
 
     const page = await context.newPage()
     await page.goto('/alerts')
+    await expect(page.getByTestId('live-status')).toHaveText('Canlı') // WS bağlanmadan ölçüm gönderirsek olayı kaçırabilir
     await s.post(50)
     await expect(card(page, s.ruleName)).toBeVisible({ timeout: 4000 })
 
@@ -207,6 +209,10 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
     const b = await context.newPage()
     await a.goto('/alerts')
     await b.goto('/alerts')
+    // WS bağlanmadan ölçüm gönderirsek o sekme olayı kaçırıp yalnızca 60 sn'lik eşitlemede yakalar
+    // (test zaman aşımını fersah fersah aşar) — bu, önceki kararsızlığın KÖK NEDENİYDİ.
+    await expect(a.getByTestId('live-status')).toHaveText('Canlı')
+    await expect(b.getByTestId('live-status')).toHaveText('Canlı')
     await s.post(50)
     await expect(card(a, s.ruleName)).toBeVisible({ timeout: 4000 })
     await expect(card(b, s.ruleName)).toBeVisible({ timeout: 4000 })
