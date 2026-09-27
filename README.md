@@ -73,6 +73,9 @@ How a sample flows through the system:
 5. The browser treats WebSocket events as hints: they are applied idempotently, and after every reconnect
    (and every 60 s as a safety net) the state is re-synchronised from the REST API.
 
+The reasoning behind these choices, and the bugs that led to some of them, is written up in
+[docs/decisions.md](docs/decisions.md).
+
 ## Quick start
 
 Requirements: **Docker** with Compose v2 or newer. (Go 1.27 is only needed to run the agent outside Docker, Node 24
@@ -220,7 +223,7 @@ agent/     Go module: metric collection, buffered sender, agent Dockerfile
 server/    Go module: REST API, auth, alert engine, Redis publisher, WebSocket hub
 web/       React + TypeScript frontend, Vitest/Playwright tests, nginx image Dockerfile
 deploy/    docker-compose.yml, .env.example, database schema, nginx config, secrets folder
-docs/      screenshots
+docs/      design decisions, screenshots
 ```
 
 ## Known limitations

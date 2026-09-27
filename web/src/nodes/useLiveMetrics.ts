@@ -5,7 +5,7 @@ import { eventToLatest, LIVE_ONLINE_MS, type LiveMap } from './live'
 /**
  * Canlı "metric" olaylarından sunucu başına son durumu tutar ve her sunucu için bir sessizlik
  * zamanlayıcısı işletir: `onlineMs` (varsayılan LIVE_ONLINE_MS) boyunca yeni olay gelmezse o sunucu çevrimdışı olur.
- * Olaylar EKSİK/GEÇ/TEKRARLI gelebilir (bkz. docs/decisions.md "Evre 3 test bulguları"); bu yüzden her olay,
+ * Olaylar EKSİK/GEÇ/TEKRARLI gelebilir (bkz. docs/decisions.md "Real-time delivery"); bu yüzden her olay,
  * o sunucunun bildiği en yeni ölçümden ESKİ ya da aynıysa yok sayılır (idempotent).
  */
 export function useLiveMetrics(onlineMs: number = LIVE_ONLINE_MS): LiveMap {

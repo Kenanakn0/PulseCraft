@@ -3,7 +3,7 @@ import type { AlertEvent } from '../realtime/events'
 
 /**
  * Alarm durumları tek yönlü bir merdiven oluşturur: open → acknowledged → resolved. Olaylar geç,
- * tekrarlı ya da sırasız gelebildiği için (bkz. docs/decisions.md "Evre 3 test bulguları") bir alarm
+ * tekrarlı ya da sırasız gelebildiği için (bkz. docs/decisions.md "Real-time delivery") bir alarm
  * ASLA daha düşük bir basamağa geri alınmaz: yalnızca aynı ya da daha yüksek basamaktaki bilgi uygulanır.
  */
 export const STATUS_RANK: Record<AlertStatus, number> = { open: 0, acknowledged: 1, resolved: 2 }

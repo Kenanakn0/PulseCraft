@@ -15,7 +15,7 @@ interface RuleRow {
 // olsa bile — o test sırasında oluşturulan `e2e-*` sunucular ve genel (sunucuya bağlı olmayan) `e2e-*` kurallar
 // silinir. Sunucuya bağlı kurallar, metrikler ve alarmlar sunucuyla birlikte cascade ile gider.
 // Neden: yarıda kalan testler kendi temizliğine ulaşamayıp prova veritabanında kalıntı bırakıyordu; bu kalıntılar
-// sonraki koşularda beklenmeyen sayılar ("Açık 2", "İncelenen 5") üretip teşhisi karıştırdı (bkz. docs/decisions.md 4.2d).
+// sonraki koşularda beklenmeyen sayılar ("Açık 2", "İncelenen 5") üretip teşhisi karıştırdı (bkz. docs/decisions.md "Testing").
 // C# karşılığı: her testten sonra çalışan bir IAsyncLifetime.DisposeAsync.
 export const test = base.extend<{ cleanupE2EData: void }>({
   cleanupE2EData: [

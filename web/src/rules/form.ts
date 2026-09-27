@@ -1,7 +1,7 @@
 import type { RulePayload } from '../api/rules'
 import type { AlertSeverity } from '../api/types'
 
-/** Sunucunun kabul ettiği metrikler, mockup'taki sırayla (docs/decisions.md: yalnızca CPU/RAM/Disk). */
+/** Sunucunun kabul ettiği metrikler, mockup'taki sırayla (bkz. docs/decisions.md "Alerting": yalnızca CPU/RAM/Disk). */
 export const METRIC_OPTIONS = ['cpu_percent', 'mem_percent', 'disk_percent'] as const
 export const OPERATOR_OPTIONS = ['>', '>=', '<', '<='] as const
 export const SEVERITY_OPTIONS: AlertSeverity[] = ['critical', 'warning', 'info']
