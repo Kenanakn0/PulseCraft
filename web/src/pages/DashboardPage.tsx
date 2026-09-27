@@ -20,7 +20,10 @@ export function DashboardPage() {
       </div>
 
       <div className="page-actions">
-        <AddNodePanel onCreated={reload} />
+        <AddNodePanel
+          onCreated={reload}
+          isOnline={(id) => state.status === 'ready' && state.nodes.some((n) => n.id === id && n.online)}
+        />
       </div>
 
       {state.status === 'loading' && (

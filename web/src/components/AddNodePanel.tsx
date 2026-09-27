@@ -7,6 +7,8 @@ import { validateNodeName } from '../nodes/form'
 interface AddNodePanelProps {
   /** Sunucu oluşturulunca (anahtar gösterilirken) listeyi yenilemek için. */
   onCreated: () => void
+  /** Yeni sunucunun agent'ı bağlandı mı (liste + canlı akıştan). Panelde "bekleniyor / bağlandı" gösterilir. */
+  isOnline?: (nodeId: string) => boolean
 }
 
 type CopyState = 'idle' | 'copied' | 'failed'
@@ -15,7 +17,7 @@ type CopyState = 'idle' | 'copied' | 'failed'
  * "Sunucu ekle": ad alır, sunucuyu oluşturur ve agent'ın API anahtarını YALNIZCA BİR KEZ gösterir.
  * Sunucu anahtarın yalnızca hash'ini saklar; bu panel kapanınca anahtar tarayıcı belleğinden de silinir.
  */
-export function AddNodePanel({ onCreated }: AddNodePanelProps) {
+export function AddNodePanel({ onCreated, isOnline = () => false }: AddNodePanelProps) {
   const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -93,12 +95,24 @@ export function AddNodePanel({ onCreated }: AddNodePanelProps) {
         )}
 
         <p className="muted">
-          Agent&apos;ı çalıştırmak için (PowerShell, <code>agent</code> klasöründe). Anahtarı komuta yazmayın, komut
-          geçmişine kaydedilir; panodan ortam değişkenine alın:
+          <strong>1.</strong> Agent&apos;ı başlatın (PowerShell, depo kök klasöründe <code>pulsecraft</code>):
         </p>
-        <pre className="mono command">
-          {`$env:PULSECRAFT_API_KEY = Get-Clipboard\ngo run ./cmd/agent "-server=${window.location.origin}"`}
-        </pre>
+        <pre className="mono command">{`go -C agent run ./cmd/agent "-server=${window.location.origin}"`}</pre>
+        <p className="muted">
+          <strong>2.</strong> Agent anahtarı sorduğunda yukarıdaki <strong>Kopyala</strong>&apos;ya basın, terminale
+          yapıştırın (sağ tık ya da Ctrl+V; yazdıklarınız ekranda <em>görünmez</em>) ve Enter&apos;a basın. Anahtar hiçbir
+          komuta yazılmaz, komut geçmişine de girmez.
+        </p>
+
+        {isOnline(created.id) ? (
+          <p className="agent-status connected" role="status" data-testid="agent-status">
+            ✓ Agent bağlandı, ölçümler geliyor.
+          </p>
+        ) : (
+          <p className="agent-status waiting" role="status" data-testid="agent-status">
+            Agent bekleniyor… Bağlanana kadar bu paneli kapatmayın.
+          </p>
+        )}
 
         <button type="button" className="primary" onClick={close}>
           Tamam, anahtarı kaydettim

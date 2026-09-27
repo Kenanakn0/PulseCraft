@@ -36,9 +36,13 @@ describe('AddNodePanel', () => {
     expect(screen.getByText(/yalnızca şimdi/)).toBeInTheDocument()
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ name: 'web-01' })
     expect(onCreated).toHaveBeenCalledTimes(1)
-    // Anahtar komut satırına yazılmaz: talimat panodan ortam değişkenine alır.
-    expect(screen.getByText(/\$env:PULSECRAFT_API_KEY = Get-Clipboard/)).toBeInTheDocument()
-    expect(document.body.textContent).not.toMatch(new RegExp(`api-key=${KEY}`))
+    // Anahtar hiçbir komuta gömülmez: agent'ı başlatma komutunda anahtar yok, agent onu gizlice sorar.
+    const command = screen.getByText(/go -C agent run \.\/cmd\/agent/)
+    expect(command).toHaveTextContent(`"-server=${window.location.origin}"`)
+    expect(command.textContent).not.toContain(KEY)
+    expect(command.textContent).not.toMatch(/api-key|Get-Clipboard/)
+    expect(screen.getByText(/ekranda/)).toBeInTheDocument()
+    expect(screen.getByTestId('agent-status')).toHaveTextContent('Agent bekleniyor')
 
     // Kapatınca anahtar DOM'dan ve state'ten gider; yeniden açılınca boş form gelir.
     await user.click(screen.getByRole('button', { name: 'Tamam, anahtarı kaydettim' }))
@@ -46,6 +50,22 @@ describe('AddNodePanel', () => {
     await user.click(screen.getByRole('button', { name: 'Sunucu ekle' }))
     expect(screen.getByLabelText('Sunucu adı')).toHaveValue('')
     expect(screen.queryByDisplayValue(KEY)).not.toBeInTheDocument()
+  })
+
+  it('agent bağlanınca panel "bekleniyor"dan "bağlandı"ya geçer (yalnızca YENİ sunucu için)', async () => {
+    stubFetch({ 'POST /api/v1/nodes': () => jsonResponse({ id: 'n9', name: 'web-01', api_key: KEY }, 201) })
+    const user = userEvent.setup()
+    let online = new Set<string>(['baska-sunucu'])
+    const { rerender } = render(<AddNodePanel onCreated={() => undefined} isOnline={(id) => online.has(id)} />)
+
+    await user.click(screen.getByRole('button', { name: 'Sunucu ekle' }))
+    await user.type(screen.getByLabelText('Sunucu adı'), 'web-01')
+    await user.click(screen.getByRole('button', { name: 'Ekle' }))
+    expect(await screen.findByTestId('agent-status')).toHaveTextContent('Agent bekleniyor')
+
+    online = new Set(['baska-sunucu', 'n9'])
+    rerender(<AddNodePanel onCreated={() => undefined} isOnline={(id) => online.has(id)} />)
+    expect(screen.getByTestId('agent-status')).toHaveTextContent('Agent bağlandı')
   })
 
   it('"Kopyala" anahtarı panoya yazar; pano yoksa elle kopyalama yönergesi gösterir', async () => {

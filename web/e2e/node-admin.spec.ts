@@ -33,7 +33,7 @@ async function ingest(baseURL: string | undefined, apiKey: string, cpu: number) 
 }
 
 /** Arayüzden sunucu ekler ve bir kez gösterilen anahtarı okur. */
-async function addNodeViaUI(page: Page, name: string): Promise<string> {
+async function addNodeViaUI(page: Page, name: string, close = true): Promise<string> {
   await page.goto('/')
   await page.getByRole('button', { name: 'Sunucu ekle' }).click()
   await page.getByLabel('Sunucu adı').fill(name)
@@ -42,9 +42,13 @@ async function addNodeViaUI(page: Page, name: string): Promise<string> {
   await expect(keyInput).toHaveValue(/^[0-9a-f]{64}$/)
   const key = await keyInput.inputValue()
   await page.screenshot({ path: 'e2e/screenshots/50-sunucu-ekle-anahtar.png', fullPage: true })
+  if (close) await closeKeyPanel(page)
+  return key
+}
+
+async function closeKeyPanel(page: Page) {
   await page.getByRole('button', { name: 'Tamam, anahtarı kaydettim' }).click()
   await expect(page.getByRole('textbox', { name: 'API anahtarı' })).toHaveCount(0) // anahtar ekrandan gitti
-  return key
 }
 
 test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () => {
@@ -55,12 +59,16 @@ test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () =>
     const page = await context.newPage()
     const name = uniqueName('e2e-ui-node')
 
-    const key = await addNodeViaUI(page, name)
+    const key = await addNodeViaUI(page, name, false) // panel açık kalsın: bağlantı göstergesi izlenecek
     const card = page.getByTestId('node-card').filter({ hasText: name })
     await expect(card).toBeVisible()
     await expect(card.getByText('Henüz ölçüm yok')).toBeVisible()
+    await expect(page.getByTestId('agent-status')).toHaveText(/Agent bekleniyor/)
+    await expect(page.getByText(/go -C agent run \.\/cmd\/agent/)).not.toContainText(key) // komutta anahtar YOK
 
     expect(await ingest(baseURL, key, 33)).toBe(202)
+    await expect(page.getByTestId('agent-status')).toHaveText(/Agent bağlandı/, { timeout: 4000 }) // canlı akıştan
+    await closeKeyPanel(page)
     await expect(card.getByText('Çevrimiçi')).toBeVisible({ timeout: 12_000 })
     await expect(card.getByText('33,0 %')).toBeVisible()
 

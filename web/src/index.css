@@ -735,3 +735,15 @@ pre.command {
   margin-top: 2rem;
   border: 1px solid var(--error-text);
 }
+
+.agent-status {
+  font-weight: 600;
+}
+
+.agent-status.waiting {
+  color: var(--muted);
+}
+
+.agent-status.connected {
+  color: var(--ok);
+}
