@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -43,7 +44,7 @@ type Config struct {
 func Load() (Config, error) {
 	cfg := Config{
 		ListenAddr:  envOrDefault("PULSECRAFT_LISTEN_ADDR", ":8080"),
-		DatabaseURL: envOrDefault("DATABASE_URL", "postgres://pulsecraft:degistir_beni@localhost:5432/pulsecraft?sslmode=disable"),
+		DatabaseURL: envOrDefault("DATABASE_URL", "postgres://pulsecraft@localhost:5432/pulsecraft?sslmode=disable"),
 		RedisURL:    envOrDefault("REDIS_URL", "redis://localhost:6379/0"),
 		JWTSecret:   strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		DemoUsers:   os.Getenv("DEMO_USERS"),
@@ -56,6 +57,10 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("JWT_SECRET tanımlı değil veya çok kısa (%d karakter); en az %d karakter gerekli", n, minJWTSecretLen)
 	}
 
+	if dbPasswordIsPlaceholder(cfg.DatabaseURL) {
+		return Config{}, fmt.Errorf("DATABASE_URL: veritabanı parolası örnek dosyadaki yer tutucu; deploy/.env içinde POSTGRES_PASSWORD'ü değiştirin")
+	}
+
 	if v := strings.TrimSpace(os.Getenv("COOKIE_SECURE")); v != "" {
 		secure, err := strconv.ParseBool(v)
 		if err != nil {
@@ -65,6 +70,17 @@ func Load() (Config, error) {
 	}
 
 	return cfg, nil
+}
+
+// dbPasswordIsPlaceholder reports whether the database password is still the example value
+// that older copies of .env.example shipped with.
+func dbPasswordIsPlaceholder(databaseURL string) bool {
+	u, err := url.Parse(databaseURL)
+	if err != nil || u.User == nil {
+		return false
+	}
+	pw, _ := u.User.Password()
+	return strings.Contains(strings.ToLower(pw), "degistir")
 }
 
 func envOrDefault(key, fallback string) string {

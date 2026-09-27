@@ -37,6 +37,8 @@ type API struct {
 func (a *API) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
+	r.Use(newCrossOriginProtection().Handler)
+	r.Use(limitBody(maxRequestBody))
 
 	// ---- Oturum GEREKTİRMEYENLER (yalnızca bunlar; başka her şey aşağıdaki grupta) ----
 	r.Get("/healthz", a.handleHealthz)
@@ -74,6 +76,31 @@ func (a *API) Routes() chi.Router {
 	})
 
 	return r
+}
+
+// maxRequestBody matches nginx's client_max_body_size, so the limit also holds when the
+// server is reached without the proxy (e.g. `go run` in development).
+const maxRequestBody = 2 << 20
+
+// newCrossOriginProtection rejects state-changing browser requests from another origin.
+// SameSite=Strict alone is not enough: pages on the same *site* (another localhost port,
+// a sibling subdomain) still get the session cookie attached. Browsers always send
+// Sec-Fetch-Site or Origin; non-browser clients such as the agent send neither and pass.
+func newCrossOriginProtection() *http.CrossOriginProtection {
+	cop := http.NewCrossOriginProtection()
+	cop.SetDenyHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "çapraz kaynaklı istek reddedildi", http.StatusForbidden)
+	}))
+	return cop
+}
+
+func limitBody(n int64) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, n)
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 // handleWS: oturumu doğrulanmış (requireAuth) isteği WebSocket'e yükseltir.

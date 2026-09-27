@@ -92,8 +92,8 @@ Edit `deploy/.env` **before the first start**:
 | Variable | What to do |
 | --- | --- |
 | `JWT_SECRET` | **Required**, at least 32 characters — the server refuses to start otherwise. Generate one (see below). |
-| `POSTGRES_PASSWORD` | Replace the placeholder. |
-| `DEMO_USERS` | `email:password:Display name`, separated by `;`. Change the placeholder passwords (8–72 bytes, no `:` `;` `$` `#` or quotes). |
+| `POSTGRES_PASSWORD` | **Required** — compose refuses to start without it. Use a strong random value (letters and digits are easiest). |
+| `DEMO_USERS` | **Required**: `email:password:Display name`, separated by `;`. Passwords are 8–72 bytes, without `:` `;` `$` `#` or quotes. The server refuses to start with placeholder, very common (`password123`, `demo1234` …) or trivial passwords. |
 | `WEB_PORT` | Port of the web UI on `127.0.0.1` (default `8080`). |
 
 Generate a `JWT_SECRET`:
@@ -165,7 +165,7 @@ docker compose --profile demo up -d --build demo-agent
 | Server | Go, [chi](https://github.com/go-chi/chi), [pgx](https://github.com/jackc/pgx), [go-redis](https://github.com/redis/go-redis), [coder/websocket](https://github.com/coder/websocket), golang-jwt, bcrypt |
 | Storage | PostgreSQL 16 + TimescaleDB (hypertable, compression after 7 days, 30-day raw retention, 1-minute continuous aggregate kept 180 days), Redis 7 (pub/sub, AOF) |
 | Frontend | React 19, TypeScript, Vite, React Router, Chart.js (`react-chartjs-2`), plain CSS with light/dark themes |
-| Delivery | Docker multi-stage builds (non-root, static binaries), nginx (same-origin reverse proxy, CSP, security headers) |
+| Delivery | Docker multi-stage builds (non-root, static binaries, pinned base images), unprivileged nginx (same-origin reverse proxy, CSP, security headers) |
 | Tests | Go `testing` (unit + integration against real PostgreSQL/Redis), Vitest + Testing Library, Playwright |
 
 ## Security notes
@@ -177,14 +177,21 @@ docker compose --profile demo up -d --build demo-agent
   the token server-side and closes that session's WebSocket (close code `4401`).
 - **Login**: rate limited to 10 attempts per minute per IP; unknown user and wrong password take the same
   time and return the same message. `X-Forwarded-For` is only trusted from the nginx container's fixed IP.
-- **WebSocket**: requires a session and a same-origin `Origin` header.
+- **Cross-site requests**: state-changing requests from another origin are rejected (`Sec-Fetch-Site` /
+  `Origin` check) — `SameSite=Strict` alone would still attach the cookie for pages on the same *site*,
+  such as another localhost port. The WebSocket requires a session and a same-origin `Origin` header.
+- **Request size**: bodies are limited to 2 MiB and 5000 samples per ingest request.
 - **nginx**: strict Content-Security-Policy (no inline scripts), `X-Frame-Options: DENY`, `nosniff`,
-  `Referrer-Policy: no-referrer`. The server itself is not published to the host.
+  `Referrer-Policy: no-referrer`; it runs as an unprivileged user. The server itself is not published to
+  the host.
+- **Configuration**: the stack refuses to start with a missing or short `JWT_SECRET`, a missing database
+  password, or placeholder/weak demo passwords.
 - **Every API route requires a session** except `/healthz`, login/logout and the agent's metrics
   endpoint — a test walks the router and fails if a new route is left unprotected.
 
 This is a portfolio project: there is no TLS termination, user management or password reset. Put it behind
-an HTTPS reverse proxy (and set `COOKIE_SECURE=true`) before exposing it beyond localhost.
+an HTTPS reverse proxy (and set `COOKIE_SECURE=true`) before exposing it beyond localhost. To report a
+vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Development and tests
 
@@ -252,7 +259,8 @@ arayüzünde (Türkçe) sunucu kartları, canlı grafikler, alarm kuralları ve 
 panosu vardır: biri bir alarmı "İncelemeye aldım" dediğinde herkesin ekranında anında görünür.
 
 Kurulum: `deploy/.env.example` dosyasını `.env` olarak kopyalayın, `JWT_SECRET` (en az 32 karakter),
-`POSTGRES_PASSWORD` ve `DEMO_USERS` parolalarını değiştirin, `deploy` klasöründe
+`POSTGRES_PASSWORD` ve `DEMO_USERS` değerlerini doldurun (örnek ya da çok yaygın parolalarla sistem
+başlamaz), `deploy` klasöründe
 `docker compose up -d --build` çalıştırın ve <http://localhost:8080> adresini açın. Sunucu eklemek için
 arayüzde **Sunucu ekle** → anahtarı **Kopyala** → depo kökünde
 `go -C agent run ./cmd/agent "-server=http://localhost:8080"` (anahtar ekranda gösterilmeden sorulur).

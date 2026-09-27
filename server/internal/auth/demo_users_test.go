@@ -67,6 +67,14 @@ func TestParseDemoUsers_Invalid(t *testing.T) {
 		{"parola bcrypt sınırından uzun", "admin@x.io:" + strings.Repeat("p", 73) + ":Admin"},
 		{"görünen ad boş", "admin@x.io:parola12345: "},
 		{"aynı e-posta (büyük/küçük harf farkıyla) iki kez", "a@x.io:parola12345:A;A@X.io:parola67890:B"},
+		{"örnek dosyadaki yer tutucu parola", "admin@x.io:degistir_beni_123:Admin"},
+		{"yer tutucu, büyük harfle", "admin@x.io:DEGISTIR_beni_456:Admin"},
+		{"İngilizce yer tutucu", "admin@x.io:changeme-please:Admin"},
+		{"yaygın parola", "admin@x.io:password123:Admin"},
+		{"yaygın parola, büyük/küçük harf farkıyla", "admin@x.io:Demo1234:Admin"},
+		{"parola e-postanın kullanıcı kısmıyla aynı", "operator@x.io:operator:Admin"},
+		{"parola e-postanın kendisiyle aynı", "admin@x.io:admin@x.io:Admin"},
+		{"tek karakterin tekrarı", "admin@x.io:aaaaaaaaaa:Admin"},
 	}
 
 	for _, tt := range tests {
@@ -82,6 +90,20 @@ func TestParseDemoUsers_Invalid(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseDemoUsers_WeakPasswordErrorExplainsWithoutLeaking(t *testing.T) {
+	_, err := ParseDemoUsers("a@x.io:parola12345:A;b@x.io:degistir_beni_456:B")
+	if err == nil {
+		t.Fatal("yer tutucu parola kabul edildi")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "2. kayıt") || !strings.Contains(msg, "yer tutucu") {
+		t.Errorf("hata kaydı ve nedeni söylemeli, gelen: %q", msg)
+	}
+	if strings.Contains(msg, "degistir_beni_456") {
+		t.Errorf("hata mesajı parolayı içeriyor: %q", msg)
 	}
 }
 

@@ -13,7 +13,7 @@ COPY . .
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/agent ./cmd/agent
 
 # ---- 2. Çalışma aşaması: sadece binary, root olmayan kullanıcı ----
-FROM alpine:3.21
+FROM alpine:3.24
 RUN adduser -D -u 10001 app
 USER app
 COPY --from=build /out/agent /usr/local/bin/agent

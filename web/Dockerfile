@@ -20,7 +20,7 @@ COPY web/ ./
 RUN npm run build
 
 # --- 2) Çalışma aşaması: yalnızca nginx + statik dosyalar (Node YOK) ---
-FROM nginx:1.27-alpine
+FROM nginxinc/nginx-unprivileged:stable-alpine
 COPY deploy/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html
-# nginx imajının kendi giriş noktası ve varsayılan kullanıcısı aynen kalır (80 portu, healthcheck compose'ta).
+# Runs as the unprivileged nginx user and listens on 8080 (see default.conf and the compose healthcheck).

@@ -88,3 +88,38 @@ func TestLoad_Defaults(t *testing.T) {
 		t.Errorf("RedisURL = %q", cfg.RedisURL)
 	}
 }
+
+func TestLoad_DatabasePasswordPlaceholder(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{"example placeholder", "postgres://pulsecraft:degistir_beni@db:5432/pulsecraft", true},
+		{"placeholder, different case", "postgres://pulsecraft:DEGISTIR_beni_2@db:5432/pulsecraft", true},
+		{"real password", "postgres://pulsecraft:0f3c9a1e7b2d@db:5432/pulsecraft", false},
+		{"no password", "postgres://pulsecraft@localhost:5432/pulsecraft", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("JWT_SECRET", strings.Repeat("s", 32))
+			t.Setenv("DATABASE_URL", tt.url)
+
+			_, err := Load()
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Load() hata = %v, hata beklenen = %v", err, tt.wantErr)
+			}
+			if err != nil && strings.Contains(strings.ToLower(err.Error()), "degistir_beni") {
+				t.Errorf("hata mesajı parolayı içeriyor: %q", err)
+			}
+		})
+	}
+}
+
+func TestLoad_DefaultDatabaseURLHasNoPlaceholderPassword(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("s", 32))
+	t.Setenv("DATABASE_URL", "")
+	if _, err := Load(); err != nil {
+		t.Fatalf("varsayılan DATABASE_URL ile Load() başarısız: %v", err)
+	}
+}

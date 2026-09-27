@@ -211,11 +211,13 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
     await expect(card(a, s.ruleName)).toBeVisible({ timeout: 4000 })
     await expect(card(b, s.ruleName)).toBeVisible({ timeout: 4000 })
 
-    // İki tıklamayı aynı anda gönder.
-    await Promise.all([
-      card(a, s.ruleName).getByRole('button', { name: 'İncelemeye aldım' }).click(),
-      card(b, s.ruleName).getByRole('button', { name: 'İncelemeye aldım' }).click(),
-    ])
+    // İki tıklamayı aynı anda gönder. click() düğmenin "kararlı" olmasını birkaç kare bekler ve kalkan düğmeye
+    // yeniden dener: A'nın incelemesi WebSocket ile B'ye daha önce ulaşırsa B'nin düğmesi kalkar ve test 30 sn
+    // takılırdı. Bu yüzden iki düğme önce bulunur, tıklamalar beklemeden tetiklenir (kalkmış düğmeye tıklamak etkisiz).
+    const buttons = await Promise.all(
+      [a, b].map((page) => card(page, s.ruleName).getByRole('button', { name: 'İncelemeye aldım' }).elementHandle()),
+    )
+    await Promise.all(buttons.map((button) => button?.evaluate((el) => (el as HTMLElement).click())))
 
     // Sonuçta HER İKİ sekmede de kart "İncelenen"de ve aynı kullanıcıyla görünür; hata yok, çift kayıt yok.
     for (const page of [a, b]) {

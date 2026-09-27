@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 )
@@ -117,5 +118,43 @@ func TestIntegration_Metrics_LargeBatchAndNullableLoad1(t *testing.T) {
 	}
 	if memUsed != 8<<30 {
 		t.Errorf("mem_used_bytes bozuldu: %d", memUsed)
+	}
+}
+
+func TestIntegration_Metrics_RejectsOversizedRequests(t *testing.T) {
+	c := newIntegration(t)
+	nodeID, key := c.createNodeViaAPI("it-node-boyut-siniri")
+
+	start := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+	batch := func(n int) []map[string]any {
+		b := make([]map[string]any, n)
+		for i := range b {
+			b[i] = sampleAt(start.Add(time.Duration(i)*time.Second), 10, nil)
+		}
+		return b
+	}
+
+	if code := c.ingestBatch(key, batch(maxSamplesPerRequest+1)); code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("%d örnek: kod %d, beklenen 413", maxSamplesPerRequest+1, code)
+	}
+	if n := c.count(`SELECT count(*) FROM metrics WHERE node_id = $1`, nodeID); n != 0 {
+		t.Fatalf("reddedilen istekten %d satır yazıldı", n)
+	}
+
+	// Gövde sınırı (2 MiB) örnek sayısından bağımsız uygulanır.
+	body, _ := json.Marshal(map[string]any{"hostname": strings.Repeat("h", maxRequestBody), "samples": batch(1)})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+key)
+	rec := httptest.NewRecorder()
+	c.router.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("2 MiB'ı aşan gövde: kod %d, beklenen 413", rec.Code)
+	}
+	if n := c.count(`SELECT count(*) FROM metrics WHERE node_id = $1`, nodeID); n != 0 {
+		t.Fatalf("reddedilen istekten %d satır yazıldı", n)
+	}
+
+	if code := c.ingestBatch(key, batch(maxSamplesPerRequest)); code != http.StatusAccepted {
+		t.Fatalf("tam %d örnek: kod %d, beklenen 202", maxSamplesPerRequest, code)
 	}
 }

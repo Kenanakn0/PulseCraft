@@ -60,6 +60,9 @@ func ParseDemoUsers(raw string) ([]DemoUser, error) {
 		if len(password) > maxPasswordBytes {
 			return nil, fmt.Errorf("DEMO_USERS: %d. kayıtta parola en fazla %d bayt olabilir (bcrypt sınırı)", n, maxPasswordBytes)
 		}
+		if reason := weakPasswordReason(email, password); reason != "" {
+			return nil, fmt.Errorf("DEMO_USERS: %d. kayıttaki parola kabul edilmedi: %s", n, reason)
+		}
 		if display == "" {
 			return nil, fmt.Errorf("DEMO_USERS: %d. kayıtta görünen ad boş olamaz", n)
 		}
@@ -71,6 +74,41 @@ func ParseDemoUsers(raw string) ([]DemoUser, error) {
 		users = append(users, DemoUser{Email: email, Password: password, DisplayName: display})
 	}
 	return users, nil
+}
+
+// placeholderMarkers appear in the example .env; a stack started with an unedited copy
+// would otherwise run with passwords that are published in the repository.
+var placeholderMarkers = []string{"degistir", "changeme", "change_me", "change-me"}
+
+var commonPasswords = map[string]bool{
+	"password": true, "password1": true, "password123": true, "passw0rd": true,
+	"12345678": true, "123456789": true, "1234567890": true, "87654321": true,
+	"11111111": true, "00000000": true, "abcdefgh": true, "abcd1234": true,
+	"qwertyui": true, "qwerty123": true, "qwertyuiop": true, "iloveyou": true,
+	"letmein1": true, "welcome1": true, "admin123": true, "admin1234": true,
+	"demo1234": true, "test1234": true, "parola123": true, "sifre123": true,
+	"şifre123": true, "pulsecraft": true,
+}
+
+// weakPasswordReason returns why a demo password is refused, or "" if it is acceptable.
+// The reason never contains the password itself.
+func weakPasswordReason(email, password string) string {
+	lower := strings.ToLower(password)
+	for _, m := range placeholderMarkers {
+		if strings.Contains(lower, m) {
+			return "örnek dosyadaki yer tutucu parola"
+		}
+	}
+	if commonPasswords[lower] {
+		return "çok yaygın bir parola"
+	}
+	if local, _, _ := strings.Cut(email, "@"); lower == local || lower == email {
+		return "e-posta adresiyle aynı"
+	}
+	if first, _ := utf8.DecodeRuneInString(password); strings.Count(password, string(first)) == utf8.RuneCountInString(password) {
+		return "tek bir karakterin tekrarı"
+	}
+	return ""
 }
 
 // SeedUsers: demo kullanıcıları users tablosuna ekler ya da günceller.

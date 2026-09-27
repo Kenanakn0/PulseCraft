@@ -14,12 +14,12 @@ name: pulsecraft
 services:
 
   db:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:2.30.1-pg16
     container_name: pulsecraft-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD deploy/.env içinde tanımlı olmalı}
       POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
@@ -75,7 +75,7 @@ services:
       # Zorunlu: tanımsızsa `docker compose up` hemen hata verir (server de zaten
       # 32 karakterden kısa/boş JWT_SECRET ile başlamaz).
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET deploy/.env içinde tanımlı olmalı (en az 32 karakter)}"
-      DEMO_USERS: "${DEMO_USERS:-}"
+      DEMO_USERS: "${DEMO_USERS:?DEMO_USERS deploy/.env içinde tanımlı olmalı (en az bir kullanıcı)}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
       # X-Forwarded-For YALNIZCA nginx'in sabit adresinden gelen isteklerde okunur
       # (aşağıdaki ağ tanımıyla eşleşmeli). Geniş bir Docker aralığı yazma: ağ
@@ -105,12 +105,12 @@ services:
     ports:
       # Varsayılan olarak yalnızca bu makineden erişilir. LAN'a açmak için
       # "127.0.0.1:" önekini kaldır (ve önce bir güvenlik değerlendirmesi yap).
-      - "127.0.0.1:${WEB_PORT:-8080}:80"
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
     networks:
       pulsecraft:
         ipv4_address: 172.30.10.10
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/"]
       interval: 10s
       timeout: 3s
       retries: 5

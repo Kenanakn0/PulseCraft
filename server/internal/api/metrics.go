@@ -22,6 +22,9 @@ import (
 // daha uzun aralıklar `metrics_1m` özet görünümünden okunur.
 const shortRangeThreshold = 3 * time.Hour
 
+// maxSamplesPerRequest leaves ample room above the agent's 1000-sample buffer.
+const maxSamplesPerRequest = 5000
+
 // metricSample: agent'ın gönderdiği bir örnek. Alan adları/JSON etiketleri
 // agent/internal/collector.Sample ile BİREBİR aynı tutulmalı — bu, iki ayrı
 // modül (agent, server) arasındaki JSON "sözleşmesi".
@@ -65,11 +68,20 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 
 	var req metricsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			http.Error(w, "istek gövdesi çok büyük", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "geçersiz istek gövdesi", http.StatusBadRequest)
 		return
 	}
 	if len(req.Samples) == 0 {
 		http.Error(w, "samples boş olamaz", http.StatusBadRequest)
+		return
+	}
+	if len(req.Samples) > maxSamplesPerRequest {
+		http.Error(w, fmt.Sprintf("istek başına en fazla %d örnek gönderilebilir", maxSamplesPerRequest), http.StatusRequestEntityTooLarge)
 		return
 	}
 

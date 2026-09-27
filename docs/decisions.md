@@ -116,6 +116,15 @@ that were accepted. For setup and usage see the [README](../README.md).
   address is the only trusted proxy.
 - **Every route requires a session** except health, login/logout and the agent's ingest endpoint. A test
   walks all registered routes and fails if a new one is left unprotected.
+- **Cross-origin protection**: `SameSite=Strict` stops *cross-site* requests but not other origins on the
+  same site (another localhost port, a sibling subdomain), which still receive the cookie. State-changing
+  requests are therefore checked with Go's `http.CrossOriginProtection` (`Sec-Fetch-Site`, falling back to
+  `Origin` vs. `Host`). The agent sends neither header and is unaffected.
+- **Fail-fast configuration**: missing secrets, a placeholder database password or placeholder/common demo
+  passwords stop the server (or compose) at startup instead of running with values published in the
+  repository.
+- **Request limits**: 2 MiB per body (enforced in the server too, not only nginx) and 5000 samples per
+  ingest request — well above the agent's 1000-sample buffer.
 
 ## Web delivery
 
@@ -126,7 +135,10 @@ that were accepted. For setup and usage see the [README](../README.md).
   the SPA fallback.
 - nginx resolves the server through Docker's DNS at request time, so recreating the server container
   (new IP) does not break the proxy.
-- The runtime image contains only nginx and the static build (no Node.js).
+- The runtime image contains only nginx and the static build (no Node.js); it is the unprivileged nginx
+  image, so the master process does not run as root.
+- Base images are pinned (TimescaleDB to an exact version, because a database volume must never be
+  opened by an older extension than the one that created it) and kept current by Dependabot.
 
 ## Frontend
 
