@@ -54,7 +54,7 @@ func Load() Config {
 	key, source, err := ResolveAPIKey(cfg.APIKey, cfg.APIKeyFile, KeyInput{
 		IsTerminal:   func() bool { return term.IsTerminal(stdin) },
 		ReadPassword: func() ([]byte, error) { return term.ReadPassword(stdin) },
-		ReadFile:     os.ReadFile,
+		ReadFile:     readKeyFile,
 		Prompt:       os.Stderr,
 	})
 	if err != nil {
@@ -63,6 +63,15 @@ func Load() Config {
 	}
 	cfg.APIKey, cfg.APIKeySource = key, source
 	return cfg
+}
+
+// readKeyFile: os.ReadFile, ama yol bir klasörse ErrKeyFileIsDir döner (işletim sistemine göre değişen
+// "is a directory"/"Access is denied" yerine anlaşılır bir hata için).
+func readKeyFile(path string) ([]byte, error) {
+	if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+		return nil, ErrKeyFileIsDir
+	}
+	return os.ReadFile(path)
 }
 
 // parse: Load'un test edilebilir çekirdeği. Global flag.CommandLine yerine kendi

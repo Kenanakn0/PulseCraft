@@ -1,0 +1,5 @@
+Dockerfile
+.dockerignore
+*.exe
+*.test
+*.key

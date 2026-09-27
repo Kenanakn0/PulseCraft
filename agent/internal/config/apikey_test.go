@@ -120,8 +120,34 @@ func TestResolveAPIKey_Sources(t *testing.T) {
 	t.Run("dosya yok: yolu söyleyen hata", func(t *testing.T) {
 		f := &fakeInput{}
 		_, _, err := ResolveAPIKey("", `C:\yok.txt`, f.input())
-		if err == nil || !strings.Contains(err.Error(), `C:\yok.txt`) || !errors.Is(err, os.ErrNotExist) {
+		if err == nil || !strings.Contains(err.Error(), `C:\yok.txt`) || !strings.Contains(err.Error(), "bulunamadı") || !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("dosya bulunamadı hatası bekleniyordu: %v", err)
+		}
+	})
+
+	t.Run("yol bir KLASÖR (Docker'ın boş klasör tuzağı): ne yapılacağını söyler", func(t *testing.T) {
+		in := (&fakeInput{}).input()
+		in.ReadFile = func(string) ([]byte, error) { return nil, ErrKeyFileIsDir }
+		_, _, err := ResolveAPIKey("", "/run/secrets/demo-agent.key", in)
+		if !errors.Is(err, ErrKeyFileIsDir) || !strings.Contains(err.Error(), "klasörü silip") {
+			t.Fatalf("klasör hatası bekleniyordu: %v", err)
+		}
+	})
+
+	t.Run("gerçek dosya sistemi: readKeyFile klasörü ayırt eder, dosyayı okur", func(t *testing.T) {
+		dir := t.TempDir()
+		if _, err := readKeyFile(dir); !errors.Is(err, ErrKeyFileIsDir) {
+			t.Errorf("klasör için ErrKeyFileIsDir bekleniyordu: %v", err)
+		}
+		p := dir + "/k.key"
+		if err := os.WriteFile(p, []byte(validKey+string(rune(10))), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if b, err := readKeyFile(p); err != nil || strings.TrimSpace(string(b)) != validKey {
+			t.Errorf("dosya okunamadı: %q %v", b, err)
+		}
+		if _, err := readKeyFile(dir + "/yok.key"); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("olmayan dosya için ErrNotExist bekleniyordu: %v", err)
 		}
 	})
 

@@ -37,3 +37,7 @@ cookie.txt
 
 # --- Agent API anahtarı dosyaları (-api-key-file) — anahtar asla repoya girmez ---
 *.key
+
+# --- deploy/secrets: örnek agent anahtarı gibi sırlar (yalnızca README izlenir) ---
+/deploy/secrets/*
+!/deploy/secrets/README.md

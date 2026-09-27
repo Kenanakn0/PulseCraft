@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"strings"
 	"unicode/utf16"
 )
@@ -21,6 +22,10 @@ const maxPromptAttempts = 3
 // ErrNoAPIKey: hiçbir kaynaktan anahtar gelmedi ve soracak bir terminal de yok.
 var ErrNoAPIKey = errors.New("API anahtarı verilmedi. Seçenekler: agent'ı bir terminalde çalıştırıp sorulduğunda " +
 	"yapıştırın, -api-key-file ile bir dosyadan okutun ya da PULSECRAFT_API_KEY ortam değişkenini ayarlayın")
+
+// ErrKeyFileIsDir: -api-key-file bir KLASÖRÜ gösteriyor. Tipik neden: Docker, bağlanacak dosya host'ta yokken
+// onun yerine boş bir klasör oluşturur.
+var ErrKeyFileIsDir = errors.New("dosya yerine bir KLASÖR var")
 
 // KeyInput: anahtarın okunacağı dış dünya. Load gerçek terminali/dosya sistemini verir; testler sahtesini.
 // (C#'ta bir IConsole / IFileSystem arayüzünü enjekte etmek gibi.)
@@ -48,7 +53,13 @@ func ResolveAPIKey(key, file string, in KeyInput) (value, source string, err err
 
 	case file != "":
 		raw, err := in.ReadFile(file)
-		if err != nil {
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return "", "", fmt.Errorf("anahtar dosyası bulunamadı (%s): arayüzdeki anahtarı bu dosyaya kaydedin: %w", file, err)
+		case errors.Is(err, ErrKeyFileIsDir):
+			return "", "", fmt.Errorf("anahtar dosyası (%s): %w. Docker bağlanacak dosya yoksa boş klasör oluşturur; "+
+				"klasörü silip anahtarı dosya olarak kaydedin: %w", file, ErrKeyFileIsDir, fs.ErrInvalid)
+		case err != nil:
 			return "", "", fmt.Errorf("anahtar dosyası okunamadı (%s): %w", file, err)
 		}
 		v, err := NormalizeAPIKey(decodeKeyFile(raw))

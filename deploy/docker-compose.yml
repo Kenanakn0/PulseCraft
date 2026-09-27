@@ -115,6 +115,40 @@ services:
       timeout: 3s
       retries: 5
 
+  # ---------------------------------------------------------------------
+  # ÖRNEK AGENT (isteğe bağlı): yalnızca `--profile demo` ile başlar.
+  #   1) Arayüzde "Sunucu ekle" ile bir sunucu oluşturun, anahtarı "Kopyala" ile alın.
+  #   2) Anahtarı komuta yazmadan dosyaya kaydedin (deploy klasöründe):
+  #        Get-Clipboard | Set-Content -NoNewline secrets\demo-agent.key
+  #      (deploy/secrets/ içeriği .gitignore'da; bkz. deploy/secrets/README.md.)
+  #   3) docker compose --profile demo up -d --build demo-agent
+  # Anahtar DOSYA olarak okunur; ortam değişkenine ya da komut satırına girmez (docker inspect'te görünmez).
+  # Tek dosya DEĞİL, var olan deploy/secrets KLASÖRÜ salt okunur bağlanır: Docker Desktop, bağlanacak dosya
+  # yoksa host'ta onun yerine sessizce boş bir klasör oluşturuyor (compose `secrets:` da, `create_host_path:
+  # false` da bunu önlemedi — prova yığınında denendi). Dosya yoksa agent açık bir hatayla durur.
+  # ---------------------------------------------------------------------
+  demo-agent:
+    profiles: ["demo"]
+    build:
+      context: ../agent
+    container_name: pulsecraft-demo-agent
+    # 401 (yanlış/silinmiş anahtar → çıkış 3) ya da yapılandırma hatasında (çıkış 2) sonsuz yeniden başlatma
+    # döngüsüne girmesin: birkaç denemeden sonra durur; nedeni `docker compose logs demo-agent`'ta yazar.
+    restart: on-failure:3
+    depends_on:
+      server:
+        condition: service_healthy
+    volumes:
+      - ./secrets:/run/secrets:ro
+    command:
+      - "-server=http://server:8080"
+      - "-api-key-file=/run/secrets/demo-agent.key"
+      # Uydurma bir ad: agent gerçek bilgisayar/container adını ASLA kendiliğinden göndermez.
+      - "-hostname=${DEMO_AGENT_HOSTNAME:-demo-agent-01}"
+      - "-interval=${DEMO_AGENT_INTERVAL:-3s}"
+    networks:
+      - pulsecraft
+
 networks:
   pulsecraft:
     ipam:
