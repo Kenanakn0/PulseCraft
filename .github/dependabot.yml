@@ -1,10 +1,18 @@
 version: 2
 
+# Minor and patch updates arrive as one grouped PR per ecosystem. Major versions are ignored: they usually need
+# coordinated changes (TypeScript vs. typescript-eslint, Node in CI + Dockerfile + engines) and are upgraded
+# deliberately by hand. Security alerts still show up under the Security tab.
+
 updates:
   - package-ecosystem: npm
     directory: /web
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       npm-minor-and-patch:
         update-types: [minor, patch]
@@ -13,6 +21,9 @@ updates:
     directory: /server
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       server-go-minor-and-patch:
         update-types: [minor, patch]
@@ -21,6 +32,9 @@ updates:
     directory: /agent
     schedule:
       interval: weekly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       agent-go-minor-and-patch:
         update-types: [minor, patch]
@@ -28,16 +42,34 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]
 
   # Base images in the Dockerfiles.
   - package-ecosystem: docker
     directories: [/server, /agent, /web]
     schedule:
-      interval: weekly
+      interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      docker-minor-and-patch:
+        update-types: [minor, patch]
 
   # TimescaleDB and Redis images in the compose file.
   - package-ecosystem: docker-compose
     directory: /deploy
     schedule:
-      interval: weekly
+      interval: monthly
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    groups:
+      compose-minor-and-patch:
+        update-types: [minor, patch]
