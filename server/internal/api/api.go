@@ -57,6 +57,7 @@ func (a *API) Routes() chi.Router {
 			r.Post("/", a.handleCreateNode)
 			r.Get("/", a.handleListNodes)
 			r.Get("/{id}/metrics", a.handleGetNodeMetrics)
+			r.Delete("/{id}", a.handleDeleteNode)
 		})
 
 		r.Route("/api/v1/alert-rules", func(r chi.Router) {

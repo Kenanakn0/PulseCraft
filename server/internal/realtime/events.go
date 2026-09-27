@@ -58,3 +58,11 @@ type RuleEvent struct {
 	Event  string `json:"event"` // "deleted"
 	RuleID int64  `json:"rule_id"`
 }
+
+// NodeEvent: bir sunucu silindi. Sunucunun TÜM alarm satırları (geçmiş dahil) cascade ile silindiği için
+// istemciler o sunucuya ait satırları listelerinden atar (alarm kanalında yayınlanır).
+type NodeEvent struct {
+	Type   string `json:"type"`  // "node"
+	Event  string `json:"event"` // "deleted"
+	NodeID string `json:"node_id"`
+}

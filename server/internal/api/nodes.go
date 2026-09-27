@@ -8,8 +8,16 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"strings"
 	"time"
+	"unicode/utf8"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 )
+
+// maxNodeNameRunes: sunucu adının en fazla karakter sayısı (arayüz kartlarında ve alarmlarda gösterilir).
+const maxNodeNameRunes = 100
 
 // onlineThreshold: last_seen_at bu süreden yeniyse node "çevrimiçi" sayılır.
 // Karşılaştırma SUNUCUDA, veritabanının saatiyle (now() - last_seen_at) yapılır;
@@ -74,8 +82,14 @@ func (a *API) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "geçersiz istek gövdesi", http.StatusBadRequest)
 		return
 	}
+	// Ad kırpılır: yalnızca boşluklardan oluşan bir ad listede "görünmez" bir kart üretirdi.
+	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		http.Error(w, "name zorunlu", http.StatusBadRequest)
+		return
+	}
+	if utf8.RuneCountInString(req.Name) > maxNodeNameRunes {
+		http.Error(w, "name en fazla 100 karakter olabilir", http.StatusBadRequest)
 		return
 	}
 
@@ -194,4 +208,53 @@ func generateAPIKey() (string, error) {
 func hashAPIKey(apiKey string) string {
 	sum := sha256.Sum256([]byte(apiKey))
 	return hex.EncodeToString(sum[:])
+}
+
+// handleDeleteNode: DELETE /api/v1/nodes/{id}. Sunucuyu ve ona bağlı her şeyi siler: metrikler, alarm
+// satırları (GEÇMİŞ DAHİL) ve YALNIZCA bu sunucuya ait kurallar (hepsi şemada ON DELETE CASCADE). Silinen
+// sunucunun API anahtarının hash'i de gider: anahtarı kullanan agent bundan sonra 401 alır.
+//
+// Sıra, kural silmedeki (handleDeleteRule) gerekçeyle aynıdır:
+//  1. cascade ile gidecek kuralların id'leri okunur (silindikten sonra öğrenilemez),
+//  2. aktif alarmlar çözülür ve "resolved" olayı yayınlanır,
+//  3. sunucu silinir, motor önbelleği yenilenir,
+//  4. silinen her kural için "rule deleted", en sonda "node deleted" olayı yayınlanır: açık istemciler o
+//     sunucuya/kurallara ait satırları (geçmiş dahil) listelerinden atar.
+func (a *API) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := chi.URLParam(r, "id")
+
+	rows, err := a.DB.Query(ctx, `SELECT id FROM alert_rules WHERE node_id = $1 ORDER BY id`, id)
+	if err != nil {
+		a.writeDBError(w, "sunucunun kuralları okunamadı", err) // geçersiz UUID → 400
+		return
+	}
+	ruleIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])
+	if err != nil {
+		a.writeDBError(w, "sunucunun kuralları okunamadı", err)
+		return
+	}
+
+	if _, err := a.Engine.ResolveNodeAlerts(ctx, id); err != nil {
+		a.writeDBError(w, "sunucunun alarmları çözülemedi", err)
+		return
+	}
+
+	tag, err := a.DB.Exec(ctx, `DELETE FROM nodes WHERE id = $1`, id)
+	if err != nil {
+		a.writeDBError(w, "sunucu silinemedi", err)
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		http.Error(w, "sunucu bulunamadı", http.StatusNotFound)
+		return
+	}
+
+	a.refreshEngine(ctx)
+	for _, ruleID := range ruleIDs {
+		a.Pub.PublishRuleDeleted(ruleID)
+	}
+	a.Pub.PublishNodeDeleted(id)
+	slog.Info("sunucu silindi", "node_id", id, "silinen_kural", len(ruleIDs))
+	w.WriteHeader(http.StatusNoContent)
 }

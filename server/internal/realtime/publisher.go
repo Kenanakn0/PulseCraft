@@ -111,3 +111,13 @@ func (p *Publisher) PublishRuleDeleted(ruleID int64) {
 	}
 	p.enqueue(job{channel: ChannelAlerts, payloads: [][]byte{payload}})
 }
+
+// PublishNodeDeleted: bir sunucu silindiğinde istemcilere haber verir (bkz. NodeEvent).
+func (p *Publisher) PublishNodeDeleted(nodeID string) {
+	payload, err := json.Marshal(NodeEvent{Type: "node", Event: "deleted", NodeID: nodeID})
+	if err != nil {
+		slog.Error("sunucu olayı json'a çevrilemedi", "err", err)
+		return
+	}
+	p.enqueue(job{channel: ChannelAlerts, payloads: [][]byte{payload}})
+}

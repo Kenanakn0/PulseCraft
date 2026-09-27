@@ -286,9 +286,31 @@ JOIN nodes n ON n.id = u.node_id
 LEFT JOIN users usr ON usr.id = u.acknowledged_by
 ORDER BY u.id`
 
+// resolvedByNodeSQL: resolvedEventsSQL'in node'a göre olanı: $1 sunucusunun TÜM kurallardaki aktif
+// alarmlarını çözer (sunucu silinmeden önce kullanılır). Döndürdüğü sütunlar aynıdır.
+const resolvedByNodeSQL = `
+WITH u AS (
+    UPDATE alerts SET status = 'resolved', resolved_at = now()
+    WHERE node_id = $1::uuid
+      AND status IN ('open', 'acknowledged')
+    RETURNING id, rule_id, node_id, trigger_value, triggered_at, acknowledged_at, acknowledged_by, resolved_at
+)
+SELECT u.id, u.rule_id, r.name, r.severity, r.metric, r.operator, r.threshold,
+       u.node_id, n.name, u.trigger_value, u.triggered_at, u.acknowledged_at, usr.display_name, u.resolved_at
+FROM u
+JOIN alert_rules r ON r.id = u.rule_id
+JOIN nodes n ON n.id = u.node_id
+LEFT JOIN users usr ON usr.id = u.acknowledged_by
+ORDER BY u.id`
+
 // queryResolved: resolvedEventsSQL'i çalıştırıp olayları kurar (yayınlamaz).
 func (e *Engine) queryResolved(ctx context.Context, ruleID int64, nodeID *string, except bool) ([]realtime.AlertEvent, error) {
-	rows, err := e.db.Query(ctx, resolvedEventsSQL, ruleID, nodeID, except)
+	return e.queryResolvedSQL(ctx, resolvedEventsSQL, ruleID, nodeID, except)
+}
+
+// queryResolvedSQL: "çöz ve olay alanlarını döndür" sorgularından birini çalıştırıp olayları kurar.
+func (e *Engine) queryResolvedSQL(ctx context.Context, sql string, args ...any) ([]realtime.AlertEvent, error) {
+	rows, err := e.db.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -380,4 +402,37 @@ func breached(value float64, operator string, threshold float64) bool {
 		return value <= threshold
 	}
 	return false
+}
+
+// ResolveNodeAlerts: bir sunucunun (hangi kurala bağlı olursa olsun) TÜM aktif alarmlarını çözer ve her
+// biri için "resolved" olayı yayınlar. Sunucu silinmeden ÖNCE çağrılır: silinince alarm satırları cascade
+// ile gider ve hangi alarmların açık olduğu artık öğrenilemez (bkz. ResolveRuleAlerts, aynı gerekçe).
+// Motorun o sunucuya ait bellek durumu (active/breachStart) da temizlenir.
+func (e *Engine) ResolveNodeAlerts(ctx context.Context, nodeID string) ([]realtime.AlertEvent, error) {
+	e.mu.Lock()
+	events, err := e.queryResolvedSQL(ctx, resolvedByNodeSQL, nodeID)
+	if err == nil {
+		for k := range e.active {
+			if k.nodeID == nodeID {
+				delete(e.active, k)
+			}
+		}
+		for k := range e.breachStart {
+			if k.nodeID == nodeID {
+				delete(e.breachStart, k)
+			}
+		}
+	}
+	e.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, ev := range events {
+		e.pub.PublishAlert(ev)
+	}
+	if len(events) > 0 {
+		slog.Info("sunucunun aktif alarmları çözüldü", "node_id", nodeID, "adet", len(events))
+	}
+	return events, nil
 }
