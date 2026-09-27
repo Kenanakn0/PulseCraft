@@ -73,10 +73,15 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := a.insertSamples(r.Context(), nodeID, req.Samples); err != nil {
+	inserted, err := a.insertSamples(r.Context(), nodeID, req.Samples)
+	if err != nil {
 		slog.Error("metrikler kaydedilemedi", "err", err)
 		http.Error(w, "sunucu hatası", http.StatusInternalServerError)
 		return
+	}
+	if skipped := int64(len(req.Samples)) - inserted; skipped > 0 {
+		// Beklenen durum (agent'ın yeniden gönderimi): hata değil, yalnızca bilgi.
+		slog.Info("mükerrer örnekler atlandı", "node_id", nodeID, "gelen", len(req.Samples), "atlanan", skipped)
 	}
 
 	// Geçersiz hostname ölçümleri REDDETMEZ: uyarıyla yok sayılır (nil → COALESCE mevcut değeri korur).
@@ -162,24 +167,42 @@ func (a *API) authenticateNode(ctx context.Context, apiKey string) (string, erro
 // insertSamples: samples'ı pgx.CopyFrom ile TEK bir toplu (batch) işlemde
 // ekler — PostgreSQL'in COPY protokolünü kullanır, satır satır INSERT'ten
 // çok daha hızlıdır (C#'taki SqlBulkCopy'nin karşılığı).
-func (a *API) insertSamples(ctx context.Context, nodeID string, samples []metricSample) error {
-	rows := make([][]any, len(samples))
+// insertSamplesSQL: tüm örnekleri TEK sorguda yazar. Her sütun bir dizi parametre olarak gelir, unnest onları
+// satırlara açar (C#'ta Npgsql ile dizi parametresi + unnest toplu insert deseni). COPY (pgx.CopyFrom) ON CONFLICT
+// desteklemediği için bu yola geçildi.
+//
+// ON CONFLICT DO NOTHING bilerek HEDEFSİZ: şemadaki (node_id, time) unique indeksine çarpan mükerrer örnekler
+// (agent zaman aşımı sonrası aynı batch'i yeniden gönderince ya da tek istekte aynı zaman iki kez gelince)
+// sessizce atlanır. Hedef sütun yazılmadığı için unique indeksi HENÜZ olmayan eski bir veritabanında da çalışır
+// (orada mükerrer engellenmez ama ingest bozulmaz).
+const insertSamplesSQL = `
+INSERT INTO metrics (time, node_id, cpu_percent, mem_percent, mem_used_bytes,
+                     disk_percent, net_rx_bps, net_tx_bps, load1)
+SELECT s.t, $1::uuid, s.cpu, s.mem, s.mem_used, s.disk, s.rx, s.tx, s.load1
+FROM unnest($2::timestamptz[], $3::float8[], $4::float8[], $5::int8[],
+            $6::float8[], $7::int8[], $8::int8[], $9::float8[])
+     AS s(t, cpu, mem, mem_used, disk, rx, tx, load1)
+ON CONFLICT DO NOTHING`
+
+// insertSamples: örnekleri yazar ve gerçekten eklenen satır sayısını döndürür (mükerrerler sayılmaz).
+func (a *API) insertSamples(ctx context.Context, nodeID string, samples []metricSample) (int64, error) {
+	n := len(samples)
+	var (
+		times           = make([]time.Time, n)
+		cpu, mem, disk  = make([]float64, n), make([]float64, n), make([]float64, n)
+		memUsed, rx, tx = make([]int64, n), make([]int64, n), make([]int64, n)
+		load1           = make([]*float64, n) // NULL olabilir (Windows)
+	)
 	for i, s := range samples {
-		rows[i] = []any{
-			s.Time, nodeID, s.CPUPercent, s.MemPercent, s.MemUsedBytes,
-			s.DiskPercent, s.NetRxBps, s.NetTxBps, s.Load1,
-		}
+		times[i], cpu[i], mem[i], disk[i] = s.Time, s.CPUPercent, s.MemPercent, s.DiskPercent
+		memUsed[i], rx[i], tx[i], load1[i] = int64(s.MemUsedBytes), s.NetRxBps, s.NetTxBps, s.Load1
 	}
 
-	_, err := a.DB.CopyFrom(ctx,
-		pgx.Identifier{"metrics"},
-		[]string{
-			"time", "node_id", "cpu_percent", "mem_percent", "mem_used_bytes",
-			"disk_percent", "net_rx_bps", "net_tx_bps", "load1",
-		},
-		pgx.CopyFromRows(rows),
-	)
-	return err
+	tag, err := a.DB.Exec(ctx, insertSamplesSQL, nodeID, times, cpu, mem, memUsed, disk, rx, tx, load1)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
 }
 
 // rawPoint: `metrics` tablosundan (ham veri) dönen bir nokta.

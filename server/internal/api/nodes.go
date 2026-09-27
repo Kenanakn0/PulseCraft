@@ -121,7 +121,7 @@ func (a *API) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 
 func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
 	// LEFT JOIN LATERAL: her node için "en yeni tek ölçümü" ayrı bir alt sorguyla
-	// alır (ix_metrics_node_time indeksi (node_id, time DESC) bunu ucuz kılar).
+	// alır (ux_metrics_node_time indeksi (node_id, time DESC) bunu ucuz kılar).
 	// Ölçümü olmayan node'larda m.* sütunları NULL gelir.
 	// EXTRACT(EPOCH ...): now() - last_seen_at farkını saniye olarak veritabanı saatiyle hesaplar.
 	rows, err := a.DB.Query(r.Context(),

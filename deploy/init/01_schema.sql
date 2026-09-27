@@ -93,7 +93,11 @@ CREATE TABLE metrics (
 );
 
 SELECT create_hypertable('metrics', 'time', chunk_time_interval => INTERVAL '1 day');
-CREATE INDEX ix_metrics_node_time ON metrics (node_id, time DESC);
+-- Sunucu + zaman başına TEK satır: agent zaman aşımı sonrası aynı örnekleri yeniden gönderirse
+-- (ya da tek istekte aynı zaman iki kez gelirse) mükerrer satır oluşmaz; server INSERT'ü
+-- ON CONFLICT DO NOTHING ile yazar. Hypertable'da unique indeks bölümleme sütununu (time) içermek
+-- zorundadır (içeriyor). Aynı indeks "sunucunun en yeni ölçümü" sorgularını da hızlandırır.
+CREATE UNIQUE INDEX ux_metrics_node_time ON metrics (node_id, time DESC);
 
 -- ---------------------------------------------------------------------
 -- 3. TIMESCALE POLİTİKALARI
