@@ -10,6 +10,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"golang.org/x/term"
 )
 
 // maxHostnameBytes: sunucunun kabul ettiği en uzun hostname (DNS tam alan adı sınırı).
@@ -18,8 +20,14 @@ const maxHostnameBytes = 253
 // Config: agent'ın çalışması için gereken tüm ayarlar.
 type Config struct {
 	ServerURL string
-	APIKey    string
-	Interval  time.Duration
+	// APIKey: parse sonrasında bayrak/ortam değişkeninden gelen HAM değer; Load bunu ResolveAPIKey ile
+	// (dosya ya da etkileşimli giriş dahil) çözüp doğrulanmış anahtarla değiştirir.
+	APIKey string
+	// APIKeyFile: anahtarı okuyacak dosya (-api-key-file / PULSECRAFT_API_KEY_FILE).
+	APIKeyFile string
+	// APIKeySource: anahtarın nereden geldiği (log için; anahtarın kendisi ASLA loglanmaz).
+	APIKeySource string
+	Interval     time.Duration
 
 	// Hostname: sunucuya gönderilecek görünen ad. VARSAYILAN BOŞTUR ve boşsa hiç
 	// gönderilmez. Agent gerçek bilgisayar adını (os.Hostname) KENDİLİĞİNDEN OKUMAZ
@@ -41,6 +49,19 @@ func Load() Config {
 		}
 		os.Exit(2)
 	}
+
+	stdin := int(os.Stdin.Fd())
+	key, source, err := ResolveAPIKey(cfg.APIKey, cfg.APIKeyFile, KeyInput{
+		IsTerminal:   func() bool { return term.IsTerminal(stdin) },
+		ReadPassword: func() ([]byte, error) { return term.ReadPassword(stdin) },
+		ReadFile:     os.ReadFile,
+		Prompt:       os.Stderr,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "HATA:", err)
+		os.Exit(2)
+	}
+	cfg.APIKey, cfg.APIKeySource = key, source
 	return cfg
 }
 
@@ -52,7 +73,10 @@ func parse(args []string, getenv func(string) string, out io.Writer) (Config, er
 	fs.SetOutput(out)
 
 	serverURL := fs.String("server", envOrDefault(getenv, "PULSECRAFT_SERVER_URL", "http://localhost:8080"), "Core server adresi")
-	apiKey := fs.String("api-key", envOrDefault(getenv, "PULSECRAFT_API_KEY", ""), "Node API key")
+	apiKey := fs.String("api-key", envOrDefault(getenv, "PULSECRAFT_API_KEY", ""),
+		"Node API anahtarı (ÖNERİLMEZ: komut geçmişinde ve süreç listesinde görünür; verilmezse agent terminalde gizlice sorar)")
+	apiKeyFile := fs.String("api-key-file", envOrDefault(getenv, "PULSECRAFT_API_KEY_FILE", ""),
+		"API anahtarını içeren dosya (servis/container kullanımı için)")
 	interval := fs.Duration("interval", envDurationOrDefault(getenv, "PULSECRAFT_INTERVAL", 3*time.Second), "Metrik toplama aralığı (ör. 3s, 500ms)")
 	hostname := fs.String("hostname", envOrDefault(getenv, "PULSECRAFT_HOSTNAME", ""),
 		"Sunucuda görünecek ad (isteğe bağlı; verilmezse hiçbir ad gönderilmez)")
@@ -61,6 +85,14 @@ func parse(args []string, getenv func(string) string, out io.Writer) (Config, er
 		return Config{}, err
 	}
 
+	// Anahtar komut satırına yazıldıysa uyar (ortam değişkeninden geldiyse uyarmaya gerek yok).
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "api-key" {
+			fmt.Fprintln(out, "UYARI: -api-key ile verilen anahtar komut geçmişinde ve süreç listesinde görünür; "+
+				"-api-key-file ya da etkileşimli girişi (bayrağı hiç vermeyin) tercih edin.")
+		}
+	})
+
 	host, err := NormalizeHostname(*hostname)
 	if err != nil {
 		fmt.Fprintf(out, "geçersiz -hostname / PULSECRAFT_HOSTNAME: %v\n", err)
@@ -68,10 +100,11 @@ func parse(args []string, getenv func(string) string, out io.Writer) (Config, er
 	}
 
 	return Config{
-		ServerURL: *serverURL,
-		APIKey:    *apiKey,
-		Interval:  *interval,
-		Hostname:  host,
+		ServerURL:  *serverURL,
+		APIKey:     *apiKey,
+		APIKeyFile: *apiKeyFile,
+		Interval:   *interval,
+		Hostname:   host,
 	}, nil
 }
 

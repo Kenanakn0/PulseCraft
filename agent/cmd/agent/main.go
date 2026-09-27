@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -21,18 +23,12 @@ func main() {
 	slog.Info("konfigürasyon yüklendi",
 		"server", cfg.ServerURL,
 		"interval", cfg.Interval,
-		"api_key_set", cfg.APIKey != "",
+		"api_key_kaynagi", cfg.APIKeySource, // anahtarın KENDİSİ asla loglanmaz
 		"hostname_gonderiliyor", cfg.Hostname != "")
 
 	info := collector.GetHostInfo()
 	slog.Info("host bilgisi", "os", info.OS, "arch", info.Arch, "cpus", info.CPUs)
 
-	// info bir değişken (addressable) olduğu için Go otomatik olarak &info alır
-	// ve pointer receiver'lı SetNote orijinal info'yu değiştirir.
-	info.SetNote("ilk ölçüm")
-	slog.Info("host bilgisi güncellendi", "note", info.Note)
-
-	// Başarılı senaryo: gerçek disk yolu.
 	diskPath := collector.DiskPath()
 	if err := collector.CheckDiskPath(diskPath); err != nil {
 		slog.Error("disk yolu kontrolü başarısız", "err", err)
@@ -40,20 +36,27 @@ func main() {
 		slog.Info("disk yolu bulundu", "path", diskPath)
 	}
 
-	// Hatalı senaryo: var olmayan bir yol -> error dönüşünü ve %w ile
-	// sarmalanmış mesajı görmek için kasıtlı olarak yanlış bir yol veriyoruz.
-	if err := collector.CheckDiskPath(`Z:\bu-yol-yok`); err != nil {
-		slog.Warn("beklenen disk hatası", "err", err)
-	}
-
-	runLoop(cfg)
+	os.Exit(runLoop(cfg))
 }
+
+// exitUnauthorized: sunucu anahtarı reddedince agent'ın çıkış kodu (2 = yapılandırma hatası ile karışmasın).
+const exitUnauthorized = 3
+
+// unauthorizedHelp: 401'de gösterilen açıklama. stderr'e yazılır ki saniyede bir akan ölçüm log
+// satırlarının arasında kaybolmasın.
+const unauthorizedHelp = `
+HATA: Sunucu API anahtarını REDDETTİ (HTTP 401). Agent duruyor.
+Olası nedenler:
+  - Anahtar yanlış ya da eksik kopyalandı (arayüzdeki "Kopyala" ile yeniden deneyin).
+  - Sunucu (node) arayüzden silindi; silinen sunucunun anahtarı artık geçersizdir.
+  - -server başka bir PulseCraft sunucusunu gösteriyor.
+Anahtarı kaybettiyseniz sunucuyu arayüzden silip yeniden ekleyin; yeni anahtar yalnızca bir kez gösterilir.`
 
 // runLoop: time.Ticker ile periyodik olarak HostInfo basar. Ctrl+C (SIGINT)
 // veya sonlandırma sinyali (SIGTERM) gelince context iptal edilir ve döngü
 // düzgünce (graceful) kapanır. C#'taki CancellationToken + periyodik
 // Task.Delay döngüsüne benzer bir yapı.
-func runLoop(cfg config.Config) {
+func runLoop(cfg config.Config) int {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -91,9 +94,13 @@ func runLoop(cfg config.Config) {
 		select {
 		case <-ctx.Done():
 			slog.Info("döngü durduruluyor, graceful shutdown tamam")
-			return
+			return 0
 		case <-ticker.C:
-			collectAndSend(ctx, netRate, buffered)
+			if err := collectAndSend(ctx, netRate, buffered); errors.Is(err, sender.ErrUnauthorized) {
+				slog.Error("sunucu API anahtarını reddetti, agent duruyor", "server", cfg.ServerURL)
+				fmt.Fprintln(os.Stderr, unauthorizedHelp)
+				return exitUnauthorized
+			}
 		}
 	}
 }
@@ -102,11 +109,11 @@ func runLoop(cfg config.Config) {
 // göndermeyi dener (backoff izin veriyorsa). Sunucu henüz yokken (Evre 3
 // tamamlanana kadar) örnekler buffer'da birikir, backoff süresi katlanarak
 // artar — bu BEKLENEN bir davranıştır.
-func collectAndSend(ctx context.Context, netRate *collector.NetRate, buffered *sender.BufferedSender) {
+func collectAndSend(ctx context.Context, netRate *collector.NetRate, buffered *sender.BufferedSender) error {
 	sample, err := collector.Collect(netRate)
 	if err != nil {
 		slog.Error("metrik toplama başarısız", "err", err)
-		return
+		return nil
 	}
 
 	loadAttr := slog.String("load1", "yok (Windows)")
@@ -124,5 +131,5 @@ func collectAndSend(ctx context.Context, netRate *collector.NetRate, buffered *s
 		loadAttr)
 
 	buffered.Add(sample)
-	buffered.Flush(ctx)
+	return buffered.Flush(ctx)
 }

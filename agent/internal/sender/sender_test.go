@@ -3,6 +3,7 @@ package sender
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -60,5 +61,50 @@ func TestSend_HostnameIsSentWhenConfigured(t *testing.T) {
 
 	if got := (*body)["hostname"]; got != "demo-sunucu-1" {
 		t.Errorf("hostname = %v, beklenen demo-sunucu-1", got)
+	}
+}
+
+// statusServer: her isteğe verilen durum koduyla yanıt veren test sunucusu.
+func statusServer(t *testing.T, code int) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(code) }))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestSend_401IsErrUnauthorized(t *testing.T) {
+	err := New(statusServer(t, http.StatusUnauthorized).URL, "anahtar", "").Send(context.Background(), sampleBatch())
+	if !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("ErrUnauthorized bekleniyordu: %v", err)
+	}
+	err = New(statusServer(t, http.StatusInternalServerError).URL, "anahtar", "").Send(context.Background(), sampleBatch())
+	if err == nil || errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("500 geçici hata olmalı, ErrUnauthorized değil: %v", err)
+	}
+}
+
+func TestFlush_ReturnsOnlyPermanentUnauthorized(t *testing.T) {
+	// 401: kalıcı → döndürülür (agent durur), örnekler buffer'da kalır.
+	b := NewBuffered(New(statusServer(t, http.StatusUnauthorized).URL, "anahtar", ""), 10)
+	b.Add(sampleBatch()[0])
+	if err := b.Flush(context.Background()); !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("401'de ErrUnauthorized dönmeli: %v", err)
+	}
+
+	// 503: geçici → nil döner (backoff ile yeniden denenecek), agent çalışmaya devam eder.
+	b = NewBuffered(New(statusServer(t, http.StatusServiceUnavailable).URL, "anahtar", ""), 10)
+	b.Add(sampleBatch()[0])
+	if err := b.Flush(context.Background()); err != nil {
+		t.Fatalf("geçici hatada nil dönmeli: %v", err)
+	}
+	if b.backoff == 0 {
+		t.Errorf("geçici hatada backoff artmalıydı")
+	}
+
+	// 202: başarı → nil, buffer boşalır.
+	b = NewBuffered(New(statusServer(t, http.StatusAccepted).URL, "anahtar", ""), 10)
+	b.Add(sampleBatch()[0])
+	if err := b.Flush(context.Background()); err != nil || len(b.buffer) != 0 {
+		t.Fatalf("başarıda buffer boşalmalı: err=%v len=%d", err, len(b.buffer))
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -42,6 +43,10 @@ type payload struct {
 	Samples  []collector.Sample `json:"samples"`
 }
 
+// ErrUnauthorized: sunucu API anahtarını reddetti (HTTP 401). Yeniden denemek anlamsızdır: anahtar yanlış ya
+// da sunucu (node) silinmiş; çağıran agent'ı açık bir mesajla durdurmalıdır.
+var ErrUnauthorized = errors.New("sunucu API anahtarını reddetti (HTTP 401)")
+
 // Send: samples listesini tek bir POST isteğiyle sunucuya gönderir.
 // Sunucuya ulaşılamazsa veya 2xx dışında bir durum kodu dönerse hata döner.
 func (s *Sender) Send(ctx context.Context, samples []collector.Sample) error {
@@ -64,8 +69,11 @@ func (s *Sender) Send(ctx context.Context, samples []collector.Sample) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusUnauthorized {
+		return ErrUnauthorized
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("sunucu beklenmeyen durum kodu döndürdü: %d", resp.StatusCode)
+		return fmt.Errorf("sunucu beklenmeyen durum kodu döndürdü: %d (%s)", resp.StatusCode, url)
 	}
 
 	return nil
@@ -111,30 +119,37 @@ func (b *BufferedSender) Add(sample collector.Sample) {
 // olursa buffer temizlenir ve backoff sıfırlanır; başarısız olursa backoff
 // katlanarak (exponential) artar — sunucu ayaktayken her tick'te değil,
 // gittikçe seyrekleşen aralıklarla tekrar denenir.
-func (b *BufferedSender) Flush(ctx context.Context) {
+//
+// Yalnızca KALICI hatayı döndürür: ErrUnauthorized (yanlış anahtarla yeniden denemek işe yaramaz).
+// Geçici hatalar (ağ, 5xx) burada loglanıp backoff ile yeniden denenir, nil döner.
+func (b *BufferedSender) Flush(ctx context.Context) error {
 	if len(b.buffer) == 0 {
-		return
+		return nil
 	}
 	if time.Now().Before(b.nextTry) {
 		slog.Info("backoff bekleniyor, gönderim atlandı",
 			"buffered", len(b.buffer), "retry_in", time.Until(b.nextTry).Round(time.Second))
-		return
+		return nil
 	}
 
 	sendCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	if err := b.sender.Send(sendCtx, b.buffer); err != nil {
+		if errors.Is(err, ErrUnauthorized) {
+			return err
+		}
 		b.backoff = nextBackoff(b.backoff, b.minBackoff, b.maxBackoff)
 		b.nextTry = time.Now().Add(b.backoff)
 		slog.Warn("gönderim başarısız, tekrar denenecek",
 			"err", err, "buffered", len(b.buffer), "backoff", b.backoff)
-		return
+		return nil
 	}
 
 	slog.Info("sunucuya gönderildi (toplu)", "count", len(b.buffer))
 	b.buffer = b.buffer[:0]
 	b.backoff = 0
+	return nil
 }
 
 // nextBackoff: mevcut backoff'u ikiye katlar (0 ise min'den başlar),
