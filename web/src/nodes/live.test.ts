@@ -82,12 +82,12 @@ describe('canlı grafik noktaları', () => {
     const out = mergeLivePoints(base, 0, 4000, [pt(3000), pt(4500), pt(5000)])
 
     expect(out.to).toBe(5000)
-    expect(out.from).toBe(1000) // pencere genişliği (4000) sabit
+    expect(out.from).toBe(1000) // window width (4000) stays constant
     expect(out.points.map((p) => p.t)).toEqual([1000, 2000, 3000, 4500, 5000])
 
     const far = mergeLivePoints(base, 0, 4000, [pt(9000)])
     expect(far.from).toBe(5000)
-    expect(far.points.map((p) => p.t)).toEqual([9000]) // 1000-3000 pencere dışında kaldı
+    expect(far.points.map((p) => p.t)).toEqual([9000]) // 1000-3000 fell out of the window
   })
 
   it('mergeLivePoints: canlı nokta yoksa/hepsi zaten REST\'teyse pencere değişmez', () => {

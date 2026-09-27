@@ -5,15 +5,15 @@ import { expect, test } from './fixtures'
 
 const email = process.env.E2E_EMAIL
 const password = process.env.E2E_PASSWORD
-// İsteğe bağlı: prova yığınının veritabanı container'ı. Verilirse, geçmiş ölçümler 1 dakikalık özete
-// (uzun aralıkların okuduğu tablo) hemen yansıtılır; yoksa özetin kendi zamanlaması beklenirdi.
+// Optional: the throw-away stack's database container. When set, past samples are pushed into the
+// 1-minute aggregate immediately instead of waiting for its own schedule.
 const dbContainer = process.env.E2E_DB_CONTAINER
 const dbUser = process.env.E2E_DB_USER ?? 'postgres'
 const dbName = process.env.E2E_DB_NAME ?? 'postgres'
 
 const shot = (name: string) => `e2e/screenshots/${name}.png`
 
-// Oturum: setup projesinin bir kez yazdığı çerez (kendi girişimizi yapmayız; bkz. e2e/auth-state.ts).
+// Session: the cookie written once by the setup project (see e2e/auth-state.ts).
 const storageState = USER1_STATE
 
 const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`
@@ -24,7 +24,7 @@ async function withSession(browser: Browser, baseURL: string | undefined) {
   return { api, context }
 }
 
-/** Node oluşturur ve son `minutes` dakikaya yayılmış, sinüs biçimli `count` ölçüm gönderir. */
+/** Creates a node and posts `count` sine-shaped samples spread over the last `minutes` minutes. */
 async function seedNode(api: APIRequestContext, name: string, minutes: number, count: number) {
   const created = await api.post('/api/v1/nodes', { data: { name } })
   expect(created.status(), 'node oluşturma').toBe(201)
@@ -58,7 +58,7 @@ function refreshAggregate() {
   ])
 }
 
-/** Canvas'ın gerçekten bir şey çizip çizmediği: saydam olmayan piksel sayısı. */
+/** Whether the canvas actually drew something: the number of non-transparent pixels. */
 async function paintedPixels(canvas: Locator): Promise<number> {
   return canvas.evaluate((el) => {
     const c = el as HTMLCanvasElement
@@ -86,14 +86,12 @@ test.describe('sunucu detayı (gerçek tarayıcı + gerçek arka uç)', () => {
     await expect(page.getByRole('heading', { level: 1, name: node.name })).toBeVisible()
     await expect(page.getByText('Çevrimiçi')).toBeVisible()
 
-    // Göstergeler: metin + canvas
     await expect(page.getByTestId('gauge-Disk')).toContainText('70,0 %')
     for (const label of ['CPU', 'RAM', 'Disk']) {
       const canvas = page.getByTestId(`gauge-${label}`).locator('canvas')
       await expect.poll(() => paintedPixels(canvas), { message: `${label} göstergesi çizildi` }).toBeGreaterThan(200)
     }
 
-    // Grafikler
     await expect(page.getByText(/ham ölçümler · 60 nokta/)).toBeVisible()
     const charts = page.locator('.chart-box canvas')
     await expect(charts).toHaveCount(2)
@@ -135,11 +133,11 @@ test.describe('sunucu detayı (gerçek tarayıcı + gerçek arka uç)', () => {
       await expect.poll(() => paintedPixels(charts.first())).toBeGreaterThan(500)
       await page.screenshot({ path: shot('21-detay-6sa'), fullPage: true })
     } else {
-      // Özet henüz yansımadıysa uygulama bunu açıkça söylemeli (çökmemeli).
+      // If the aggregate has no data yet, the app must say so (not crash).
       await expect(page.getByText(/dakikalık ortalama|Bu aralıkta ölçüm yok/)).toBeVisible()
     }
 
-    // Yenileyince aynı görünüm gelir (aralık adreste tutuluyor).
+    // Reloading shows the same view (the range lives in the URL).
     await page.reload()
     await expect(page.getByRole('button', { name: '6 sa' })).toHaveAttribute('aria-pressed', 'true')
 
@@ -156,7 +154,7 @@ test.describe('sunucu detayı (gerçek tarayıcı + gerçek arka uç)', () => {
     await page.goto(`/nodes/${node.id}`)
 
     const browserNow = await page.evaluate(() => Date.now())
-    expect(browserNow - Date.now()).toBeGreaterThan(2 * 24 * 3600 * 1000) // öncül: saat gerçekten ileride
+    expect(browserNow - Date.now()).toBeGreaterThan(2 * 24 * 3600 * 1000) // precondition: the clock really is ahead
 
     await expect(page.getByText('Çevrimiçi')).toBeVisible()
     await expect(page.getByText(/ham ölçümler · 40 nokta/)).toBeVisible()
@@ -180,7 +178,7 @@ test.describe('sunucu detayı (gerçek tarayıcı + gerçek arka uç)', () => {
     await page.goto('/nodes/00000000-0000-0000-0000-000000000000')
     await expect(page.getByText('Bu sunucu bulunamadı.')).toBeVisible()
 
-    // Geçersiz kimlik biçimi: sunucu 400 döner, arayüz "bulunamadı" der (çökmez).
+    // Malformed id: the server answers 400 and the UI says "not found" (no crash).
     await page.goto('/nodes/gecersiz-kimlik')
     await expect(page.getByText('Bu sunucu bulunamadı.')).toBeVisible()
 

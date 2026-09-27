@@ -1,6 +1,4 @@
-// Sunucunun JSON sözleşmesi. Alan adları sunucudakiyle (snake_case) birebir aynıdır.
-// TypeScript'te `interface`, C#'taki bir DTO'ya/record'a benzer, ama YAPISALDIR: bir nesne
-// bu alanlara sahipse, adı ne olursa olsun bu tipe uyar (C#'ta uyum isimle/kalıtımla olur).
+// The server's JSON contract; field names match the server exactly (snake_case).
 
 export interface User {
   id: number
@@ -8,14 +6,12 @@ export interface User {
   display_name: string
 }
 
-/** POST /api/v1/auth/login yanıtı. */
 export interface LoginResponse {
   user: User
 }
 
-/** Bir sunucunun (node) en son kaydedilmiş ölçümü. */
 export interface NodeLatest {
-  /** Ölçümün zamanı (ISO 8601). */
+  /** Sample time (ISO 8601). */
   time: string
   cpu_percent: number
   mem_percent: number
@@ -23,13 +19,13 @@ export interface NodeLatest {
   disk_percent: number
   net_rx_bps: number
   net_tx_bps: number
-  /** Windows'ta yoktur → `null` (C#'taki `double?`). */
+  /** `null` where the platform has no load average (Windows). */
   load1: number | null
 }
 
 /**
- * GET /api/v1/nodes listesindeki bir sunucu. `online` ve `last_seen_seconds_ago`
- * SUNUCUDA hesaplanır: tarayıcı saatinin yanlış olması durumu etkilemez.
+ * A server in GET /api/v1/nodes. `online` and `last_seen_seconds_ago` are computed on the SERVER, so a
+ * wrong browser clock cannot affect them.
  */
 export interface NodeSummary {
   id: string
@@ -40,13 +36,13 @@ export interface NodeSummary {
   last_seen_at: string | null
   created_at: string
   online: boolean
-  /** Hiç görülmediyse `null`. */
+  /** `null` if never seen. */
   last_seen_seconds_ago: number | null
-  /** Hiç ölçümü yoksa `null`. */
+  /** `null` without any sample. */
   latest: NodeLatest | null
 }
 
-/** `metrics` tablosundan (ham veri) gelen nokta. */
+/** Point from the raw `metrics` table. */
 export interface RawMetricPoint {
   time: string
   cpu_percent: number
@@ -58,7 +54,7 @@ export interface RawMetricPoint {
   load1?: number
 }
 
-/** `metrics_1m` özetinden (1 dakikalık ortalama/maksimum) gelen nokta. */
+/** Point from the `metrics_1m` aggregate (1-minute average/maximum). */
 export interface AggMetricPoint {
   time: string
   cpu_avg: number
@@ -71,19 +67,16 @@ export interface AggMetricPoint {
 }
 
 /**
- * GET /api/v1/nodes/{id}/metrics yanıtı. `resolution` hangi tablodan okunduğunu söyler ve
- * `points`'in şeklini belirler (TypeScript'te ayırt edilmiş birleşim / discriminated union:
- * `resolution` alanına bakınca derleyici doğru nokta tipini bilir; C#'ta bir sınıf hiyerarşisi
- * + `switch` ifadesi gibi düşünülebilir).
+ * GET /api/v1/nodes/{id}/metrics response. `resolution` tells which table was read and determines the
+ * shape of `points` (a discriminated union).
  */
 export type MetricsRangeResponse =
   | { resolution: 'raw'; from: string; to: string; points: RawMetricPoint[] }
   | { resolution: '1m'; from: string; to: string; points: AggMetricPoint[] }
 
-/** GET /api/v1/auth/me yanıtı. */
 export interface MeResponse {
   user: User
-  /** Oturumun sona ereceği an (ISO 8601). */
+  /** When the session expires (ISO 8601). */
   expires_at: string
 }
 
@@ -91,8 +84,8 @@ export type AlertStatus = 'open' | 'acknowledged' | 'resolved'
 export type AlertSeverity = 'info' | 'warning' | 'critical'
 
 /**
- * Bir alarm satırı: hem GET /api/v1/alerts yanıtındaki bir öğe hem de bir WebSocket alarm olayından
- * kurulan satır aynı biçimdedir (4.2a: olay alarmın tüm alanlarını taşır).
+ * An alert row: an item of GET /api/v1/alerts and a row built from a WebSocket alert event have the same
+ * shape (events carry the full row).
  */
 export interface AlertRow {
   id: number
@@ -107,19 +100,18 @@ export interface AlertRow {
   status: AlertStatus
   trigger_value: number
   triggered_at: string
-  /** İncelemeye alınmadıysa `null`. */
+  /** `null` unless acknowledged. */
   acknowledged_at: string | null
-  /** İncelemeye alanın görünen adı; alınmadıysa `null`. */
+  /** Display name of the acknowledging user; `null` unless acknowledged. */
   acknowledged_by: string | null
-  /** Çözülmediyse `null`. */
+  /** `null` unless resolved. */
   resolved_at: string | null
 }
 
-/** GET/POST/PUT /api/v1/alert-rules'ta bir alarm kuralı. */
 export interface AlertRule {
   id: number
   name: string
-  /** `null` = tüm sunucular. */
+  /** `null` = all servers. */
   node_id: string | null
   metric: string
   operator: string
@@ -130,7 +122,7 @@ export interface AlertRule {
   created_at: string
 }
 
-/** POST /api/v1/nodes yanıtı. `api_key` düz metin olarak YALNIZCA bir kez gelir. */
+/** POST /api/v1/nodes response. The plain `api_key` is returned only once. */
 export interface CreatedNode {
   id: string
   name: string

@@ -1,6 +1,7 @@
 import type { AlertRow, AlertSeverity, AlertStatus, NodeLatest } from '../api/types'
 
-// /ws üzerinden gelen olaylar (sunucudaki realtime.MetricEvent / AlertEvent / RuleEvent / NodeEvent ile aynı alan adları).
+// Events received over /ws (same field names as the server's realtime.MetricEvent / AlertEvent /
+// RuleEvent / NodeEvent).
 
 export interface MetricEvent extends NodeLatest {
   type: 'metric'
@@ -8,8 +9,8 @@ export interface MetricEvent extends NodeLatest {
 }
 
 /**
- * Alarm olayı: alarmın TÜM satırını taşır (4.2a), böylece istemci bilmediği bir alarm için REST'e
- * gitmeden satır kurabilir. `event` yaşam döngüsündeki adımı söyler, `status` alarmın son durumudur.
+ * Alert event: carries the full alert row, so the client can build a row for an alert it has never seen
+ * without a REST call. `event` is the lifecycle step, `status` the alert's current status.
  */
 export interface AlertEvent extends AlertRow {
   type: 'alert'
@@ -18,14 +19,14 @@ export interface AlertEvent extends AlertRow {
   alert_id: number
 }
 
-/** Bir alarm kuralı silindi: ona bağlı TÜM alarmlar (geçmiş dahil) sunucuda da silindi. */
+/** A rule was deleted: ALL of its alerts (history included) are gone on the server too. */
 export interface RuleEvent {
   type: 'rule'
   event: 'deleted'
   rule_id: number
 }
 
-/** Bir sunucu silindi: ona ait TÜM alarm satırları (geçmiş dahil) sunucuda da silindi. */
+/** A server was deleted: ALL of its alert rows (history included) are gone on the server too. */
 export interface NodeEvent {
   type: 'node'
   event: 'deleted'
@@ -44,9 +45,9 @@ const STATUSES: readonly string[] = ['open', 'acknowledged', 'resolved'] satisfi
 const SEVERITIES: readonly string[] = ['info', 'warning', 'critical'] satisfies AlertSeverity[]
 
 /**
- * Ham WebSocket metnini doğrulanmış bir olaya çevirir; bozuk/bilinmeyen mesajda `null` döner.
- * TypeScript tipleri çalışma zamanında silindiği için (bkz. apiFetch) ağdan gelen veriye
- * güvenmek yerine burada alanların varlığı ve türü gerçekten denetlenir.
+ * Turns raw WebSocket text into a validated event; `null` for malformed or unknown messages. Types are
+ * erased at runtime (see apiFetch), so field presence and types are checked here instead of trusting the
+ * network.
  */
 export function parseEvent(raw: unknown): RealtimeEvent | null {
   if (typeof raw !== 'string') return null

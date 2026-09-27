@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// fakeClock: testte zamanı elle ilerletmek için.
 type fakeClock struct{ t time.Time }
 
 func (c *fakeClock) now() time.Time          { return c.t }
@@ -26,10 +25,10 @@ func TestRateLimiter_LimitAndSlidingWindow(t *testing.T) {
 		if ok, _ := l.Allow("1.2.3.4"); !ok {
 			t.Fatalf("%d. deneme izinli olmalıydı", i)
 		}
-		clock.advance(time.Second) // denemeler 1 sn arayla: t=0..9
+		clock.advance(time.Second) // one attempt per second: t=0..9
 	}
 
-	// 11. deneme (t=10 sn) reddedilmeli; ilk deneme t=0'da yapıldı, 60 sn'de düşer.
+	// The 11th attempt (t=10 s) is rejected; the first one (t=0) leaves the window at 60 s.
 	ok, retry := l.Allow("1.2.3.4")
 	if ok {
 		t.Fatal("11. deneme reddedilmeliydi")
@@ -38,12 +37,12 @@ func TestRateLimiter_LimitAndSlidingWindow(t *testing.T) {
 		t.Errorf("retryAfter = %v, beklenen 50s", retry)
 	}
 
-	// Reddedilen deneme kaydedilmez: 50 sn sonra (t=60) ilk kayıt pencereden düşer.
+	// Rejected attempts are not recorded: at t=60 the first attempt has left the window.
 	clock.advance(50 * time.Second)
 	if ok, _ := l.Allow("1.2.3.4"); !ok {
 		t.Error("pencere kaydıktan sonra bir deneme izinli olmalı")
 	}
-	// Ama 1 sn'de eski kayıtlar hâlâ pencerede: hemen ardından tekrar reddedilir.
+	// But the other attempts are still in the window, so the next one is rejected again.
 	if ok, _ := l.Allow("1.2.3.4"); ok {
 		t.Error("kayan pencerede yalnızca tek slot açılmıştı")
 	}
@@ -68,8 +67,8 @@ func TestRateLimiter_Cleanup(t *testing.T) {
 	l.Allow("b")
 
 	clock.advance(30 * time.Second)
-	l.Allow("b")                    // b hâlâ etkin
-	clock.advance(45 * time.Second) // a'nın kaydı 75 sn önce, b'nin son kaydı 45 sn önce
+	l.Allow("b")                    // b is still active
+	clock.advance(45 * time.Second) // a's attempt was 75 s ago, b's last one 45 s ago
 
 	l.Cleanup()
 	if _, ok := l.hits["a"]; ok {
@@ -103,10 +102,10 @@ func TestRateKey(t *testing.T) {
 		want string
 	}{
 		{"203.0.113.9", "203.0.113.9"},
-		{"::ffff:203.0.113.9", "203.0.113.9"}, // IPv4-mapped => IPv4
+		{"::ffff:203.0.113.9", "203.0.113.9"},
 		{"2001:db8:1:2:aaaa:bbbb:cccc:dddd", "2001:db8:1:2::/64"},
-		{"2001:db8:1:2:1111:2222:3333:4444", "2001:db8:1:2::/64"}, // aynı /64 => aynı anahtar
-		{"2001:db8:1:3::1", "2001:db8:1:3::/64"},                  // farklı /64 => farklı anahtar
+		{"2001:db8:1:2:1111:2222:3333:4444", "2001:db8:1:2::/64"},
+		{"2001:db8:1:3::1", "2001:db8:1:3::/64"},
 	}
 	for _, tt := range tests {
 		if got := RateKey(netip.MustParseAddr(tt.addr)); got != tt.want {

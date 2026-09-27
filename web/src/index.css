@@ -1,5 +1,4 @@
-/* Renkler CSS değişkenleri olarak tanımlı; koyu tema, tarayıcı/işletim sistemi ayarına göre
-   otomatik devreye girer (prefers-color-scheme). */
+/* Colours are CSS variables; the dark theme follows the browser/OS setting (prefers-color-scheme). */
 :root {
   color-scheme: light dark;
 
@@ -20,7 +19,7 @@
   --off-bg: #eceef2;
   --radius: 10px;
 
-  /* Grafik/gösterge renkleri (canvas'a çizildiği için JS okur; bkz. charts/theme.ts) */
+  /* Chart and gauge colours: read by JS because they are drawn on canvas (see charts/theme.ts) */
   --series-cpu: #2453d6;
   --series-mem: #b8590a;
   --series-rx: #157f3c;
@@ -134,7 +133,7 @@ label {
   font-weight: 600;
 }
 
-/* --- Giriş sayfası --- */
+/* --- Login page --- */
 .login-page {
   min-height: 100vh;
   display: grid;
@@ -170,7 +169,7 @@ label {
   color: var(--notice-text);
 }
 
-/* --- Uygulama çerçevesi --- */
+/* --- App layout --- */
 .app-header {
   display: flex;
   align-items: center;
@@ -196,7 +195,7 @@ label {
   color: var(--muted);
 }
 
-/* --- Sunucu listesi --- */
+/* --- Server list --- */
 .page-head {
   display: flex;
   align-items: baseline;
@@ -222,7 +221,7 @@ label {
 }
 
 .node-card {
-  position: relative; /* tıklama alanını kartın tamamına yaymak için (.node-link::after) */
+  position: relative; /* lets .node-link::after stretch the click area over the whole card */
 }
 
 .node-card:hover {
@@ -314,7 +313,7 @@ label {
   font-variant-numeric: tabular-nums;
 }
 
-/* --- Sunucu detayı --- */
+/* --- Server detail --- */
 a {
   color: var(--primary);
 }
@@ -350,7 +349,7 @@ a {
 
 .gauge-canvas {
   position: relative;
-  height: 7.5rem; /* yarım daire: kapsayıcının alt yarısı boş kalır */
+  height: 7.5rem; /* half circle: the bottom half of the container stays empty */
 }
 
 .gauge-value {
@@ -426,7 +425,7 @@ a {
 
 .chart-box {
   position: relative;
-  height: 16rem; /* Chart.js (maintainAspectRatio: false) bu kapsayıcıya sığar */
+  height: 16rem; /* Chart.js (maintainAspectRatio: false) fills this container */
 }
 
 @media (max-width: 40rem) {
@@ -451,7 +450,7 @@ code {
   font-size: 0.9em;
 }
 
-/* Canlı bağlantı göstergesi (üst çubuk) */
+/* Live connection indicator (top bar) */
 .live-indicator {
   display: inline-flex;
   align-items: center;
@@ -476,7 +475,7 @@ code {
   background: #b7791f;
 }
 
-/* --- Gezinme (üst çubuk) --- */
+/* --- Navigation (top bar) --- */
 .main-nav {
   display: flex;
   gap: 0.25rem;
@@ -514,7 +513,7 @@ code {
   text-align: center;
 }
 
-/* --- Alarm panosu --- */
+/* --- Alert board --- */
 .tabs {
   display: flex;
   gap: 0.25rem;
@@ -616,7 +615,7 @@ code {
   color: var(--error-text);
 }
 
-/* --- Alarm kuralları --- */
+/* --- Alert rules --- */
 .rule-form {
   margin-bottom: 1.25rem;
 }
@@ -691,7 +690,7 @@ button.danger {
   color: var(--error-text);
 }
 
-/* --- Sunucu ekle / sil --- */
+/* --- Add / delete server --- */
 .page-actions {
   margin-bottom: 1rem;
 }

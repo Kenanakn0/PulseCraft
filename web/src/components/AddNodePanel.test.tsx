@@ -36,7 +36,7 @@ describe('AddNodePanel', () => {
     expect(screen.getByText(/yalnızca şimdi/)).toBeInTheDocument()
     expect(calls.find((c) => c.method === 'POST')?.body).toEqual({ name: 'web-01' })
     expect(onCreated).toHaveBeenCalledTimes(1)
-    // Anahtar hiçbir komuta gömülmez: agent'ı başlatma komutunda anahtar yok, agent onu gizlice sorar.
+    // The key is never embedded in a command: the start command has no key, the agent asks for it hidden.
     const command = screen.getByText(/go -C agent run \.\/cmd\/agent/)
     expect(command).toHaveTextContent(`"-server=${window.location.origin}"`)
     expect(command.textContent).not.toContain(KEY)
@@ -44,7 +44,7 @@ describe('AddNodePanel', () => {
     expect(screen.getByText(/ekranda/)).toBeInTheDocument()
     expect(screen.getByTestId('agent-status')).toHaveTextContent('Agent bekleniyor')
 
-    // Kapatınca anahtar DOM'dan ve state'ten gider; yeniden açılınca boş form gelir.
+    // Closing removes the key from the DOM and the state; reopening shows an empty form.
     await user.click(screen.getByRole('button', { name: 'Tamam, anahtarı kaydettim' }))
     expect(screen.queryByDisplayValue(KEY)).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Sunucu ekle' }))

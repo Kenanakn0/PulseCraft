@@ -4,8 +4,6 @@ import { sortNodes } from '../nodes/format'
 import { useNodes } from '../nodes/useNodes'
 
 export function DashboardPage() {
-  // Hook, bileşenin en üst düzeyinde çağrılır. Yükleme/yenileme mantığı bileşenden ayrı,
-  // yeniden kullanılabilir bir yerde (useNodes) durur; bu bileşen yalnızca "ne çizeceğini" bilir.
   const { state, reload } = useNodes()
 
   return (
@@ -59,10 +57,6 @@ export function DashboardPage() {
             </div>
           ) : (
             <div className="node-grid">
-              {/* KEY: listedeki her öğeye kararlı, benzersiz bir kimlik verilir. React, liste
-                  değişince (yeniden sıralama, ekleme, silme) hangi öğenin hangisi olduğunu bununla
-                  anlar ve yalnızca gerçekten değişeni günceller. Blazor'daki @key ile aynıdır.
-                  Dizinin sırasını (index) key yapma: sıra değişince kimlikler kayar. */}
               {sortNodes(state.nodes).map((node) => (
                 <NodeCard key={node.id} node={node} />
               ))}

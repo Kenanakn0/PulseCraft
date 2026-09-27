@@ -33,8 +33,8 @@ describe('eventReducer', () => {
     const acked = event({ id: 1, status: 'acknowledged', acknowledged_by: 'Ada' }, 'acknowledged')
     const before = apply(initialEventState, acked)
 
-    const after = apply(before, event({ id: 1 })) // geç gelen "opened"
-    expect(after).toBe(before) // etkisiz olayda AYNI nesne (gereksiz yeniden çizim yok)
+    const after = apply(before, event({ id: 1 })) // a late "opened"
+    expect(after).toBe(before) // a no-op event returns the SAME object (no needless re-render)
     expect(after.rows[1]?.row.acknowledged_by).toBe('Ada')
 
     const resolved = apply(before, event({ id: 1, status: 'resolved', acknowledged_by: 'Ada', resolved_at: '2030-01-01T10:10:00Z' }, 'resolved'))
@@ -57,7 +57,7 @@ describe('eventReducer', () => {
 
     const late = apply(state, event({ id: 3, rule_id: 10 }))
     expect(late).toBe(state)
-    expect(eventReducer(state, { type: 'ruleDeleted', ruleId: 10 })).toBe(state) // tekrar: etkisiz
+    expect(eventReducer(state, { type: 'ruleDeleted', ruleId: 10 })).toBe(state) // repeat: no-op
   })
 
   it('girdiyi DEĞİŞTİRMEZ', () => {
@@ -103,19 +103,19 @@ describe('mergeAlerts', () => {
   })
 
   it('anlık görüntü İSTEĞİ SIRASINDA gelen yeni alarm kaybolmaz', () => {
-    const snapshot = [makeAlert({ id: 1 })] // istek başladığında (seq 0) 1 vardı
-    const state = apply(initialEventState, event({ id: 2 })) // istek sürerken 2 açıldı (seq 1)
+    const snapshot = [makeAlert({ id: 1 })] // 1 existed when the request started (seq 0)
+    const state = apply(initialEventState, event({ id: 2 })) // 2 opened while it was running (seq 1)
     expect(mergeAlerts(snapshot, 0, state).map((a) => a.id).sort()).toEqual([1, 2])
   })
 
   it('anlık görüntü İSTEKTEN ÖNCE alınan olayları geçersiz kılar: sunucuda olmayan satır hayalet kalmaz', () => {
-    const state = apply(initialEventState, event({ id: 2 })) // seq 1
-    // Sonraki eşitleme, olay alındıktan SONRA başladı (startSeq = 1) ve alarm 2'yi içermiyor (silinmiş).
+    const state = apply(initialEventState, event({ id: 2 }))
+    // The next sync started AFTER the event was received (startSeq = 1) and no longer contains alert 2 (deleted).
     expect(mergeAlerts([makeAlert({ id: 1 })], 1, state).map((a) => a.id)).toEqual([1])
   })
 
   it('istek sırasında gelen olay, anlık görüntüdeki DAHA İLERİ durumu geri almaz', () => {
-    const state = apply(initialEventState, event({ id: 1 })) // olay: open (seq 1)
+    const state = apply(initialEventState, event({ id: 1 })) // event: open (seq 1)
     const snapshot = [makeAlert({ id: 1, status: 'resolved', resolved_at: '2030-01-01T10:10:00Z' })]
     expect(mergeAlerts(snapshot, 0, state)[0]?.status).toBe('resolved')
   })

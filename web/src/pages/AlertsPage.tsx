@@ -10,16 +10,18 @@ const TABS: { id: AlertStatus; label: string; empty: string }[] = [
   { id: 'resolved', label: 'Çözülen', empty: 'Çözülen alarm yok.' },
 ]
 
-/** Sunucunun her durum için döndürdüğü en çok kayıt (bkz. GET /api/v1/alerts). */
+/** The most rows the server returns per status (see GET /api/v1/alerts). */
 const SERVER_LIMIT = 200
 
 const parseTab = (value: string | null): AlertStatus => TABS.find((t) => t.id === value)?.id ?? 'open'
 
-/** Ortak alarm panosu: tüm kullanıcılar aynı listeyi görür; bir kullanıcı incelemeye alınca hepsinde anında güncellenir. */
+/**
+ * Shared alert board: every user sees the same list; an acknowledgement updates it for all of them at once.
+ */
 export function AlertsPage() {
   const { state, acknowledge, reload } = useAlerts()
 
-  // Seçili sekme adreste (?tab=): yenilenince/bağlantı paylaşılınca aynı görünüm gelir (bkz. NodeDetailPage).
+  // The selected tab lives in the URL (?tab=), so a reload or a shared link shows the same view.
   const [searchParams, setSearchParams] = useSearchParams()
   const tab = parseTab(searchParams.get('tab'))
 

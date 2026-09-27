@@ -7,22 +7,19 @@ export function LoginPage() {
   const { status, sessionExpired, login } = useAuth()
   const location = useLocation()
 
-  // KONTROLLÜ GİRDİ: input'un değeri React state'inde tutulur (value + onChange).
-  // Blazor'daki `@bind` (iki yönlü bağlama) karşılığı; React'te bağlamayı elle kurarsın.
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Zaten girişliyse (ya da az önce giriş yaptıysa) formu göstermeden yönlendir.
-  // Giriş başarılı olunca AuthProvider'daki state değişir, bu bileşen yeniden çizilir ve
-  // buraya düşer; ayrıca navigate() çağırmaya gerek yoktur.
+  // Already signed in (or just signed in): redirect without rendering the form. A successful login changes
+  // AuthProvider's state, this component re-renders and ends up here, so no navigate() call is needed.
   if (status === 'authenticated') {
     return <Navigate to={safeRedirectPath(location.state)} replace />
   }
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
-    event.preventDefault() // tarayıcının formu sayfayı yenileyerek göndermesini engelle
+    event.preventDefault() // prevent the browser's full-page form submission
     setError(null)
 
     const trimmedEmail = email.trim()

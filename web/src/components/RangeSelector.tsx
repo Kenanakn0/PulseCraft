@@ -5,7 +5,6 @@ interface RangeSelectorProps {
   onChange: (id: RangeId) => void
 }
 
-/** Zaman aralığı düğmeleri (15 dk / 1 sa / 6 sa / 24 sa). */
 export function RangeSelector({ value, onChange }: RangeSelectorProps) {
   return (
     <div className="range-selector" role="group" aria-label="Zaman aralığı">

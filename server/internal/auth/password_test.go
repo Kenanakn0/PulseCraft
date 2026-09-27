@@ -22,7 +22,7 @@ func TestVerifyPassword(t *testing.T) {
 		{"yanlış parola", true, "yanlis-parola-123", false},
 		{"boş parola", true, "", false},
 		{"kullanıcı yok", false, "dogru-parola-123", false},
-		// Kullanıcı yokken, hash'in kendisi "doğru" parola olsa bile sonuç false.
+		// Without a user the result is false even for the "right" password.
 		{"kullanıcı yok, sahte hash'in parolası", false, "hicbir-kullaniciya-ait-olmayan-sahte-parola", false},
 	}
 	for _, tt := range tests {
@@ -39,7 +39,7 @@ func TestDummyHashUsesSameCostAsRealHashes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// SeedUsers bcrypt.DefaultCost ile hash'ler; eşit süre için dummy de aynı olmalı.
+	// Equal timing requires the dummy hash to have the same cost as SeedUsers' hashes.
 	if cost != bcrypt.DefaultCost {
 		t.Errorf("dummy hash maliyeti = %d, beklenen %d", cost, bcrypt.DefaultCost)
 	}

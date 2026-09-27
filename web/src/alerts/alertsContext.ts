@@ -1,10 +1,9 @@
 import { createContext } from 'react'
 import type { AlertRow } from '../api/types'
 
-/** "İncelemeye aldım" işleminin sonucu. */
 export type AckResult =
   | { kind: 'ok' }
-  /** Alarm artık `open` değil (başkası önce davrandı ya da çözüldü); liste yenilenir. */
+  /** The alert is no longer `open` (someone was faster, or it resolved); the list is refreshed. */
   | { kind: 'conflict'; message: string }
   | { kind: 'error'; message: string }
 
@@ -13,18 +12,18 @@ export type AlertsState =
   | { status: 'error'; message: string }
   | {
       status: 'ready'
-      /** Tüm durumlardaki alarmlar (REST anlık görüntüsü + canlı olaylar, birleştirilmiş). */
+      /** Alerts in all statuses (REST snapshot merged with live events). */
       alerts: AlertRow[]
-      /** Liste bir kez yüklendikten sonraki bir yenilemenin başarısız olduğunu söyler; son bilinen veri kalır. */
+      /** A refresh after the first successful load failed; the last known data stays. */
       refreshError: string | null
     }
 
 export interface AlertsContextValue {
   state: AlertsState
   acknowledge: (id: number) => Promise<AckResult>
-  /** "Yeniden dene": yükleme durumuna dönerek baştan yükler. */
+  /** "Try again": starts over from the loading state. */
   reload: () => void
 }
 
-// Varsayılan null: provider olmadan kullanılırsa useAlerts anlaşılır bir hata verir (bkz. useAuth).
+// Default null: useAlerts outside the provider throws a clear error (see useAuth).
 export const AlertsContext = createContext<AlertsContextValue | null>(null)

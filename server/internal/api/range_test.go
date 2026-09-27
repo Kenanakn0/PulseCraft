@@ -26,8 +26,8 @@ func TestResolveRange_Last(t *testing.T) {
 		{"last=1h", time.Hour},
 		{"last=6h", 6 * time.Hour},
 		{"last=24h", 24 * time.Hour},
-		{"last=1m", time.Minute},           // alt sınır dahil
-		{"last=720h", 30 * 24 * time.Hour}, // üst sınır dahil
+		{"last=1m", time.Minute},           // lower bound inclusive
+		{"last=720h", 30 * 24 * time.Hour}, // upper bound inclusive
 		{"last=90m", 90 * time.Minute},
 	}
 	for _, tt := range tests {
@@ -36,7 +36,7 @@ func TestResolveRange_Last(t *testing.T) {
 			t.Errorf("%s: beklenmeyen hata: %v", tt.raw, err)
 			continue
 		}
-		// Pencere, verilen "şimdi"ye (sunucu saati) göre kurulur: tarayıcı saati hiçbir rol oynamaz.
+		// The window is built from the given "now" (server clock); the browser clock plays no role.
 		if !to.Equal(fixedNow) || !from.Equal(fixedNow.Add(-tt.span)) {
 			t.Errorf("%s: aralık = %v .. %v, beklenen %v .. %v", tt.raw, from, to, fixedNow.Add(-tt.span), fixedNow)
 		}
@@ -46,7 +46,7 @@ func TestResolveRange_Last(t *testing.T) {
 func TestResolveRange_LastInvalid(t *testing.T) {
 	for _, raw := range []string{
 		"last=abc", "last=15", "last=30s", "last=0m", "last=-1h", "last=721h", "last=9999h",
-		"last=1h&from=2030-06-15T10:00:00Z", // birlikte kullanılamaz
+		"last=1h&from=2030-06-15T10:00:00Z",
 		"last=1h&to=2030-06-15T10:00:00Z",
 	} {
 		if from, to, err := resolveRange(query(t, raw), fixedNow); err == nil {
@@ -61,7 +61,6 @@ func TestResolveRange_FromTo(t *testing.T) {
 		t.Errorf("from/to = %v .. %v, %v", from, to, err)
 	}
 
-	// Hiçbiri verilmezse son 1 saat.
 	from, to, err = resolveRange(query(t, ""), fixedNow)
 	if err != nil || !to.Equal(fixedNow) || !from.Equal(fixedNow.Add(-time.Hour)) {
 		t.Errorf("varsayılan = %v .. %v, %v", from, to, err)

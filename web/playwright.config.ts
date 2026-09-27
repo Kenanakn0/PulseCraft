@@ -1,16 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// Tarayıcı (Chromium) testleri. Çalıştırmadan önce:
-//   1) Arka uç ayakta olmalı (docker compose; ya da sahte kimlik bilgili bir prova yığını)
-//   2) Ortam değişkenleri: E2E_EMAIL, E2E_PASSWORD (giriş yapabilen bir kullanıcı), iki kullanıcılı
-//      testler için E2E_EMAIL2, E2E_PASSWORD2 ve isteğe bağlı VITE_PROXY_TARGET (arka ucun adresi;
-//      varsayılan http://127.0.0.1:8080)
-// Kimlik bilgisi yoksa ilgili testler atlanır. Giriş, "setup" projesinde (e2e/auth.setup.ts) kullanıcı başına
-// TEK kez yapılır; testler çerezi e2e/.auth/ altından okur (giriş oran sınırı: IP başına dakikada 10).
+// Browser (Chromium) tests. Before running:
+//   1) the backend must be up (docker compose, or a throw-away stack with fake credentials);
+//   2) E2E_EMAIL, E2E_PASSWORD (a user that can log in), for the two-user tests E2E_EMAIL2 and
+//      E2E_PASSWORD2, and optionally VITE_PROXY_TARGET (backend address, default http://127.0.0.1:8080).
+// Tests without credentials are skipped. The "setup" project (e2e/auth.setup.ts) logs each user in once;
+// tests read the cookie from e2e/.auth/ (login is rate limited to 10 per minute per IP).
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
-  workers: 1, // giriş denemeleri IP başına dakikada 10 ile sınırlı; testler sırayla çalışsın
+  workers: 1, // login is limited to 10 attempts per minute per IP; run tests one at a time
   retries: 0,
   reporter: [['list']],
   outputDir: 'test-results',
@@ -25,7 +24,7 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] }, dependencies: ['setup'] },
   ],
 
-  // Vite geliştirme sunucusunu başlatır (zaten çalışıyorsa onu kullanır).
+  // Starts the Vite dev server (or reuses a running one).
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:5173',

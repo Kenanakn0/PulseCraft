@@ -5,10 +5,10 @@ import { expect, test } from './fixtures'
 
 const email = process.env.E2E_EMAIL
 const password = process.env.E2E_PASSWORD
-// İsteğe bağlı: server container'ı. Verilirse "server yeniden başlayınca canlı akış geri gelir" senaryosu çalışır.
+// Optional: the server container. When set, the "live stream recovers after a server restart" test runs.
 const serverContainer = process.env.E2E_SERVER_CONTAINER
 
-// Oturum: setup projesinin bir kez yazdığı çerez (kendi girişimizi yapmayız; bkz. e2e/auth-state.ts).
+// Session: the cookie written once by the setup project (see e2e/auth-state.ts).
 const storageState = USER1_STATE
 
 const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`
@@ -19,7 +19,7 @@ async function withSession(browser: Browser, baseURL: string | undefined) {
   return { api, context }
 }
 
-/** Node oluşturur; `post(cpu)` o an için tek ölçüm gönderir (agent gibi, API key ile). */
+/** Creates a node; `post(cpu)` sends one sample for now (like the agent, with the API key). */
 async function createNode(api: APIRequestContext, name: string) {
   const created = await api.post('/api/v1/nodes', { data: { name } })
   expect(created.status(), 'node oluşturma').toBe(201)
@@ -49,8 +49,8 @@ async function createNode(api: APIRequestContext, name: string) {
 }
 
 /**
- * REST yanıtını DONDURUR: ilk yanıt gerçekten alınır, sonrakilere aynısı verilir. Böylece 10 sn'lik
- * yoklama ekrandaki değeri güncelleyemez; bir değişiklik görünürse ancak WebSocket'ten gelmiş olabilir.
+ * FREEZES the REST response: the first one is fetched for real, later ones get the same body. The 10 s
+ * polling can then no longer change the screen, so any visible change must have come over the WebSocket.
  */
 async function freezeRest(page: Page, urlGlob: string) {
   let frozen: { status: number; body: string } | undefined
@@ -83,7 +83,7 @@ test.describe('canlı akış (gerçek tarayıcı + gerçek WebSocket)', () => {
     await expect(page.getByTestId('live-status')).toHaveText('Canlı')
 
     await node.post(55.5)
-    await expect(card.getByText('55,5 %')).toBeVisible({ timeout: 3000 }) // yoklama dondurulmuş: yalnızca WS
+    await expect(card.getByText('55,5 %')).toBeVisible({ timeout: 3000 }) // polling frozen: WebSocket only
 
     await context.close()
     await api.dispose()
@@ -108,7 +108,7 @@ test.describe('canlı akış (gerçek tarayıcı + gerçek WebSocket)', () => {
     await expect(page.getByTestId('gauge-CPU')).toContainText('91,5 %', { timeout: 3000 })
     await expect(page.getByText(/ham ölçümler · 6 nokta/)).toBeVisible({ timeout: 3000 })
 
-    // Canvas gerçekten yeniden çizildi mi (boş değil)?
+    // Was the canvas really redrawn (not empty)?
     const painted = await page.locator('.chart-box canvas').first().evaluate((el) => {
       const c = el as HTMLCanvasElement
       const { data } = c.getContext('2d')!.getImageData(0, 0, c.width, c.height)
@@ -126,7 +126,7 @@ test.describe('canlı akış (gerçek tarayıcı + gerçek WebSocket)', () => {
     browser,
     baseURL,
   }) => {
-    // Bu test kendi oturumunu açar: paylaşılan oturumu iptal edip diğer testleri bozmasın.
+    // This test uses its own session: revoking the shared one would break the other tests.
     const login = await request.newContext({ baseURL })
     const res = await login.post('/api/v1/auth/login', { data: { email, password } })
     expect(res.ok()).toBe(true)
@@ -137,11 +137,11 @@ test.describe('canlı akış (gerçek tarayıcı + gerçek WebSocket)', () => {
     await page.goto('/')
     await expect(page.getByTestId('live-status')).toHaveText('Canlı')
 
-    await login.post('/api/v1/auth/logout') // aynı token iptal edilir; tarayıcıdaki cookie artık geçersiz
+    await login.post('/api/v1/auth/logout') // revokes this very token; the browser's cookie is now invalid
 
     await expect(page).toHaveURL(/\/login/, { timeout: 5000 })
 
-    // Yeniden bağlanma denemesi OLMADI: kısa süre bekleyip giriş sayfasında kaldığını doğrula.
+    // No reconnect attempt: wait briefly and check that the page stays on login.
     await page.waitForTimeout(2500)
     await expect(page).toHaveURL(/\/login/)
 
@@ -168,7 +168,7 @@ test.describe('canlı akış (gerçek tarayıcı + gerçek WebSocket)', () => {
 
     await expect(page.getByTestId('live-status')).toHaveText('Yeniden bağlanıyor…', { timeout: 15_000 })
     await expect(page.getByTestId('live-status')).toHaveText('Canlı', { timeout: 45_000 })
-    await expect(page).not.toHaveURL(/\/login/) // oturum (JWT) restart'tan etkilenmez
+    await expect(page).not.toHaveURL(/\/login/) // the session (JWT) survives the restart
 
     await node.post(66.5)
     await expect(card.getByText('66,5 %')).toBeVisible({ timeout: 3000 })

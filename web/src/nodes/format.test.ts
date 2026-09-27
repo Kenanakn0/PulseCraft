@@ -39,7 +39,7 @@ describe('sortNodes', () => {
       makeNode({ id: '5', name: 'Cem', online: true }),
     ]
 
-    // Türkçe alfabede: a < c < ç.
+    // Turkish alphabet: a < c < ç.
     expect(sortNodes(nodes).map((n) => n.name)).toEqual(['alfa', 'Cem', 'Çiçek', 'beta', 'zeta'])
   })
 

@@ -11,7 +11,7 @@ import { createFakeSocket, FakeSocket, metricEvent } from '../test/fakeWebSocket
 import { aggPoint, aggResponse, makeNode, rawPoint, rawResponse } from '../test/fixtures'
 import { RealtimeProvider } from './RealtimeProvider'
 
-// Geliştirmedeki gibi <StrictMode> içinde: effect'ler kurulup temizlenip yeniden kurulur.
+// Inside <StrictMode>, like in development: effects are set up, cleaned up and set up again.
 const wrapper = ({ children }: { children: ReactNode }) => (
   <StrictMode>
     <RealtimeProvider createSocket={createFakeSocket} url="ws://test/ws" baseDelayMs={10} maxDelayMs={20}>
@@ -20,7 +20,7 @@ const wrapper = ({ children }: { children: ReactNode }) => (
   </StrictMode>
 )
 
-/** StrictMode ilk soketi hemen kapatıp yenisini açar: "yaşayan" (kapatılmamış) son soketi döndürür. */
+/** StrictMode closes the first socket at once and opens another: returns the live (not closed) last one. */
 const liveSocket = () => {
   const alive = FakeSocket.instances.filter((s) => !s.closedByClient)
   const s = alive[alive.length - 1]
@@ -60,8 +60,8 @@ describe('canlı akış + sunucu listesi', () => {
     await openSocket()
 
     await send(metricEvent('n1', '2031-01-01T00:00:10Z', { cpu_percent: 50 }))
-    await send(metricEvent('n1', '2031-01-01T00:00:05Z', { cpu_percent: 5 })) // eski, geç gelmiş
-    await send(metricEvent('n1', '2031-01-01T00:00:10Z', { cpu_percent: 6 })) // aynı zaman, tekrar
+    await send(metricEvent('n1', '2031-01-01T00:00:05Z', { cpu_percent: 5 })) // stale, arrived late
+    await send(metricEvent('n1', '2031-01-01T00:00:10Z', { cpu_percent: 6 })) // same time, repeated
 
     expect(ready(result)[0]?.latest?.cpu_percent).toBe(50)
   })
@@ -87,7 +87,7 @@ describe('canlı akış + sunucu listesi', () => {
     const seen: string[] = []
     const { result } = renderHook(
       () => {
-        const value = useNodes(60_000) // yoklama 60 sn: yenileme YALNIZCA yeniden bağlanmadan gelebilir
+        const value = useNodes(60_000) // polling is 60 s: a refresh can ONLY come from the reconnect
         seen.push(value.state.status)
         return value
       },
@@ -99,7 +99,7 @@ describe('canlı akış + sunucu listesi', () => {
     const before = listCalls()
     const readyAt = seen.length
 
-    // Kopma → (backoff) → yeni soket → açılış
+    // Disconnect → (backoff) → new socket → open
     const dropped = liveSocket()
     await act(() => dropped.drop(1006))
     await waitFor(() => expect(liveSocket()).not.toBe(dropped), { timeout: 2000 })
@@ -169,7 +169,7 @@ describe('canlı akış + geçmiş grafiği', () => {
     if (state.status !== 'ready') throw new Error('ready değil')
     expect(state.points).toHaveLength(4)
     expect(state.points.at(-1)).toMatchObject({ t: Date.parse('2030-01-01T00:00:09Z'), cpu: 77 })
-    // Sunucunun penceresi 00:00:00 - 00:15:00 idi; canlı nokta pencere içinde → pencere değişmez.
+    // The server's window was 00:00:00 - 00:15:00; the live point falls inside → the window does not move.
     expect(state.to).toBe(Date.parse('2030-01-01T00:15:00Z'))
   })
 
@@ -213,7 +213,7 @@ describe('oturum bitişi ve kopmalar', () => {
 
     const count = FakeSocket.instances.length
     await act(() => liveSocket().drop(4401))
-    await new Promise((r) => setTimeout(r, 100)) // backoff (10 ms) çok geçti; yeni soket açılmamalı
+    await new Promise((r) => setTimeout(r, 100)) // the backoff (10 ms) is long over; no new socket may open
 
     expect(listener).toHaveBeenCalledTimes(1)
     expect(FakeSocket.instances).toHaveLength(count)

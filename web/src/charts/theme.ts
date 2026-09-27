@@ -1,4 +1,4 @@
-/** Canvas'a çizilen grafiklerin kullandığı renkler. */
+/** Colours used by the canvas-drawn charts. */
 export interface ChartTheme {
   text: string
   grid: string
@@ -26,8 +26,8 @@ const FALLBACK: ChartTheme = {
 }
 
 /**
- * Renkleri CSS değişkenlerinden okur (index.css). Canvas CSS'i kendiliğinden bilmez, bu yüzden
- * çizim sırasında hesaplanmış stilden alınır; değişken tanımlı değilse (ör. testler) varsayılan kullanılır.
+ * Reads the colours from CSS variables (index.css). A canvas knows nothing about CSS, so they are taken
+ * from the computed style at draw time; defaults apply where a variable is missing (e.g. tests).
  */
 export function readChartTheme(root: Element = document.documentElement): ChartTheme {
   const style = getComputedStyle(root)

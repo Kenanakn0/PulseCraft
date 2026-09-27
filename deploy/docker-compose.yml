@@ -1,13 +1,9 @@
-# =====================================================================
-# PulseCraft - Altyapı + Core Server + web (nginx)
-# Servisler: TimescaleDB (PostgreSQL 16) + Redis + Go server + nginx (React derlemesini sunar)
-# Çalıştırma: C:\dev\pulsecraft\deploy klasöründe -> docker compose up -d --build
+# PulseCraft: TimescaleDB + Redis + Go server + nginx (serves the React build).
+# Run from this folder: docker compose up -d --build
 #
-# Dışarıya (host'a) açılan tek uygulama kapısı nginx'tir (varsayılan
-# http://localhost:8080). Server'ın portu host'a YAYINLANMAZ; ona yalnızca
-# nginx (aynı docker ağından) erişir. db/redis geliştirme araçları için
-# yalnızca loopback'te (127.0.0.1) yayınlanır, LAN'dan görünmez.
-# =====================================================================
+# nginx is the only application entry point on the host (default http://localhost:8080). The server's port
+# is not published; only nginx reaches it over the Docker network. db and redis are published on loopback
+# (127.0.0.1) for development tools and are not visible on the LAN.
 
 name: pulsecraft
 
@@ -24,11 +20,9 @@ services:
     ports:
       - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
-      # Veriler container silinse de kalsın diye kalıcı volume
       - db_data:/var/lib/postgresql/data
-      # Şema dosyası, ilk açılışta otomatik çalışır.
-      # Klasörün tamamı değil tek dosya bağlanıyor; böylece image'ın kendi
-      # Timescale kurulum script'leri (000_, 001_) silinmez, bizimki onlardan sonra çalışır.
+      # Runs on the first start of an empty volume. A single file is mounted (not the folder) so the image's
+      # own TimescaleDB setup scripts (000_, 001_) stay in place and run first.
       - ./init/01_schema.sql:/docker-entrypoint-initdb.d/010_schema.sql:ro
     networks:
       - pulsecraft
@@ -42,7 +36,6 @@ services:
     image: redis:7-alpine
     container_name: pulsecraft-redis
     restart: unless-stopped
-    # appendonly: Redis kapansa da verilerini diske yazar
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
@@ -67,21 +60,16 @@ services:
       redis:
         condition: service_healthy
     environment:
-      # Container içinden servislere adlarıyla (db, redis) erişilir, localhost ile değil.
-      # Not: POSTGRES_PASSWORD URL'de özel karakter (@ : / ?) içeriyorsa % ile kodlanmalı.
+      # A POSTGRES_PASSWORD containing @ : / ? would have to be percent-encoded in this URL.
       DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"
       REDIS_URL: "redis://redis:6379/0"
       PULSECRAFT_LISTEN_ADDR: ":8080"
-      # Zorunlu: tanımsızsa `docker compose up` hemen hata verir (server de zaten
-      # 32 karakterden kısa/boş JWT_SECRET ile başlamaz).
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET deploy/.env içinde tanımlı olmalı (en az 32 karakter)}"
       DEMO_USERS: "${DEMO_USERS:?DEMO_USERS deploy/.env içinde tanımlı olmalı (en az bir kullanıcı)}"
       COOKIE_SECURE: "${COOKIE_SECURE:-false}"
-      # X-Forwarded-For YALNIZCA nginx'in sabit adresinden gelen isteklerde okunur
-      # (aşağıdaki ağ tanımıyla eşleşmeli). Geniş bir Docker aralığı yazma: ağ
-      # geçidini (host) de kapsayabilir.
+      # X-Forwarded-For is only read from nginx's fixed address (must match the network below). Do not use a
+      # wide Docker range: it could include the gateway, i.e. the host.
       TRUSTED_PROXIES: "172.30.10.10"
-    # Host'a yayınlanmaz; yalnızca aynı ağdaki nginx erişir (expose sadece belgeleme amaçlıdır).
     expose:
       - "8080"
     networks:
@@ -93,7 +81,7 @@ services:
       retries: 5
 
   nginx:
-    # React derlemesi + nginx yapılandırması tek imajda (web/Dockerfile). Context REPO KÖKÜ.
+    # The React build and the nginx config live in one image; the build context is the repository root.
     build:
       context: ..
       dockerfile: web/Dockerfile
@@ -103,8 +91,8 @@ services:
       server:
         condition: service_healthy
     ports:
-      # Varsayılan olarak yalnızca bu makineden erişilir. LAN'a açmak için
-      # "127.0.0.1:" önekini kaldır (ve önce bir güvenlik değerlendirmesi yap).
+      # Reachable from this machine only. Removing the "127.0.0.1:" prefix exposes it to the LAN; put an
+      # HTTPS proxy in front first (see SECURITY.md).
       - "127.0.0.1:${WEB_PORT:-8080}:8080"
     networks:
       pulsecraft:
@@ -115,25 +103,22 @@ services:
       timeout: 3s
       retries: 5
 
-  # ---------------------------------------------------------------------
-  # ÖRNEK AGENT (isteğe bağlı): yalnızca `--profile demo` ile başlar.
-  #   1) Arayüzde "Sunucu ekle" ile bir sunucu oluşturun, anahtarı "Kopyala" ile alın.
-  #   2) Anahtarı komuta yazmadan dosyaya kaydedin (deploy klasöründe):
+  # Example agent (optional), started only with `--profile demo`:
+  #   1) In the UI, "Sunucu ekle" creates a server; copy its key with "Kopyala".
+  #   2) Save the key to a file without typing it into a command (in this folder):
   #        Get-Clipboard | Set-Content -NoNewline secrets\demo-agent.key
-  #      (deploy/secrets/ içeriği .gitignore'da; bkz. deploy/secrets/README.md.)
   #   3) docker compose --profile demo up -d --build demo-agent
-  # Anahtar DOSYA olarak okunur; ortam değişkenine ya da komut satırına girmez (docker inspect'te görünmez).
-  # Tek dosya DEĞİL, var olan deploy/secrets KLASÖRÜ salt okunur bağlanır: Docker Desktop, bağlanacak dosya
-  # yoksa host'ta onun yerine sessizce boş bir klasör oluşturuyor (compose `secrets:` da, `create_host_path:
-  # false` da bunu önlemedi — prova yığınında denendi). Dosya yoksa agent açık bir hatayla durur.
-  # ---------------------------------------------------------------------
+  # The key is read from a file, so it never appears in the environment, the command line or docker inspect.
+  # The existing deploy/secrets FOLDER is mounted rather than a single file: when a bind-mounted file does not
+  # exist, Docker Desktop silently creates an empty directory in its place (neither compose `secrets:` nor
+  # `create_host_path: false` prevented that). Without the file the agent stops with a clear error.
   demo-agent:
     profiles: ["demo"]
     build:
       context: ../agent
     container_name: pulsecraft-demo-agent
-    # 401 (yanlış/silinmiş anahtar → çıkış 3) ya da yapılandırma hatasında (çıkış 2) sonsuz yeniden başlatma
-    # döngüsüne girmesin: birkaç denemeden sonra durur; nedeni `docker compose logs demo-agent`'ta yazar.
+    # A rejected key (exit 3) or a configuration error (exit 2) must not cause an endless restart loop; the
+    # reason is in `docker compose logs demo-agent`.
     restart: on-failure:3
     depends_on:
       server:
@@ -143,7 +128,7 @@ services:
     command:
       - "-server=http://server:8080"
       - "-api-key-file=/run/secrets/demo-agent.key"
-      # Uydurma bir ad: agent gerçek bilgisayar/container adını ASLA kendiliğinden göndermez.
+      # A made-up name: the agent never sends the real machine or container name on its own.
       - "-hostname=${DEMO_AGENT_HOSTNAME:-demo-agent-01}"
       - "-interval=${DEMO_AGENT_INTERVAL:-3s}"
     networks:
@@ -153,7 +138,7 @@ networks:
   pulsecraft:
     ipam:
       config:
-        # Sabit subnet: nginx'in adresi (172.30.10.10) TRUSTED_PROXIES ile eşleşmek zorunda.
+        # Fixed subnet: nginx's address (172.30.10.10) must match TRUSTED_PROXIES.
         - subnet: 172.30.10.0/24
           gateway: 172.30.10.1
 

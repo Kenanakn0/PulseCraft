@@ -11,8 +11,8 @@ import (
 	"github.com/coder/websocket"
 )
 
-// newWSServer: ServeWS'i verilen oturumla sunan bir test sunucusu döndürür.
-// Hub'ın Redis'e ihtiyacı yoktur (Run çağrılmıyor); mesajlar broadcast ile verilir.
+// newWSServer serves ServeWS with the given session. The hub needs no Redis here (Run is not called);
+// messages are injected with broadcast.
 func newWSServer(t *testing.T, sess Session) (*httptest.Server, *Hub) {
 	t.Helper()
 	hub := NewHub(nil)
@@ -32,7 +32,7 @@ func dial(t *testing.T, srv *httptest.Server, header http.Header) (*websocket.Co
 	return websocket.Dial(ctx, wsURL(srv), &websocket.DialOptions{HTTPHeader: header})
 }
 
-// waitForClients: hub'a n istemci kaydolana dek bekler (add, Accept'ten sonra çalışır).
+// waitForClients waits until n clients have registered (add runs after Accept).
 func waitForClients(t *testing.T, hub *Hub, n int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -45,13 +45,8 @@ func waitForClients(t *testing.T, hub *Hub, n int) {
 	t.Fatalf("hub istemci sayısı %d olmalıydı, şu an %d", n, hub.count())
 }
 
-// watchClose: bağlantıyı tek bir goroutine'de sürekli okur; bağlantı kapanınca
-// kapanma kodunu kanala yazar (kapanma dışındaki hatalarda -1).
-//
-// NEDEN Read'i zaman aşımıyla yoklamıyoruz: coder/websocket'te context'i
-// süresi dolan bir Read bağlantıyı KAPATIR. "Hâlâ açık mı?" diye kısa
-// zaman aşımlı Read atmak, sunucu kapatmadan önce bağlantıyı bizim
-// öldürmemize yol açar. Bu yardımcı bunun yerine kapanmayı bekler.
+// watchClose reads continuously and reports the close code (-1 for other errors). Polling Read with a
+// timeout would not work: in coder/websocket a Read whose context expires closes the connection.
 func watchClose(conn *websocket.Conn) <-chan websocket.StatusCode {
 	ch := make(chan websocket.StatusCode, 1)
 	go func() {
@@ -107,7 +102,7 @@ func TestServeWS_Broadcast(t *testing.T) {
 func TestServeWS_OriginCheckStaysEnabled(t *testing.T) {
 	srv, _ := newWSServer(t, Session{})
 
-	// Başka bir site (ya da aynı makinedeki başka bir port) adına gelen istek reddedilmeli.
+	// A request on behalf of another site (or another port on the same machine) must be rejected.
 	for _, origin := range []string{"https://evil.example", "http://localhost:9999", "http://127.0.0.1:9999"} {
 		conn, resp, err := dial(t, srv, http.Header{"Origin": {origin}})
 		if err == nil {
@@ -120,7 +115,7 @@ func TestServeWS_OriginCheckStaysEnabled(t *testing.T) {
 		}
 	}
 
-	// Aynı-origin (Origin host'u, isteğin Host'uyla aynı) kabul edilmeli.
+	// Same origin (Origin host equals the request Host) is accepted.
 	conn, _, err := dial(t, srv, http.Header{"Origin": {srv.URL}})
 	if err != nil {
 		t.Fatalf("aynı-origin reddedildi: %v", err)
@@ -140,7 +135,6 @@ func TestServeWS_ClosedWhenSessionRevoked(t *testing.T) {
 	waitForClients(t, hub, 1)
 	closed := watchClose(conn)
 
-	// İptal edilmeden bağlantı açık kalmalı.
 	expectOpen(t, closed, 300*time.Millisecond)
 
 	close(revoked)
@@ -202,7 +196,7 @@ func TestBroadcast_DropsSlowClientWithoutAffectingOthers(t *testing.T) {
 	if _, alive := hub.clients[fast]; !alive || len(fast.send) != 5 {
 		t.Errorf("hızlı istemci tüm mesajları almalı: canlı=%v, kuyruk=%d", alive, len(fast.send))
 	}
-	// Düşürülen istemcinin channel'ı kapatıldı: okuyan taraf bunu fark eder.
+	// The dropped client's channel is closed, so the reader notices.
 	drained := 0
 	for range slow.send {
 		drained++

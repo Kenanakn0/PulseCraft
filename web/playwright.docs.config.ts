@@ -1,15 +1,15 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// README EKRAN GÖRÜNTÜLERİ (test değil, belge üretici). Derlenmiş uygulamaya (nginx) karşı, UYDURMA verilerle
-// çalışır ve görüntüleri ../docs/screenshots/ altına yazar (bilinçli olarak commit'lenir).
+// README SCREENSHOTS (a document generator, not a test). Runs against the built app (nginx) with
+// FICTIONAL data and writes the images to ../docs/screenshots/ (committed on purpose).
 //
-//   Ortam değişkenleri: SHOTS_BASE_URL (varsayılan http://127.0.0.1:18080), SHOTS_ADMIN_EMAIL/SHOTS_ADMIN_PASSWORD
-//   (görünen adı "Admin" olan PROVA kullanıcısı), SHOTS_OPS_EMAIL/SHOTS_OPS_PASSWORD (görünen adı "Operatör").
-//   Parolaları komut satırına yazmayın; yalnızca sahte kimlik bilgili prova yığınının değerlerini kullanın.
+//   Environment: SHOTS_BASE_URL (default http://127.0.0.1:18080), SHOTS_ADMIN_EMAIL/SHOTS_ADMIN_PASSWORD
+//   (a throw-away user displayed as "Admin"), SHOTS_OPS_EMAIL/SHOTS_OPS_PASSWORD (displayed as "Operatör").
+//   Do not type passwords on the command line; use only the throw-away stack's fake credentials.
 //   npm run docs:shots
 //
-// DİKKAT: sunucu, kural ve alarm OLUŞTURUR. Yalnızca boş, sahte kimlik bilgili bir PROVA yığınına karşı çalıştırın;
-// gerçek verinizle çalıştırmak hem verinizi kirletir hem de gerçek adlar/değerler görüntülere girer.
+// WARNING: it CREATES servers, rules and alerts. Run it only against an empty throw-away stack with fake
+// credentials; against real data it pollutes your data and real names end up in the images.
 export default defineConfig({
   testDir: './docs-shots',
   testMatch: /.*\.shots\.ts/,

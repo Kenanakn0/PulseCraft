@@ -2,16 +2,14 @@ package realtime
 
 import "time"
 
-// Redis Pub/Sub kanalları.
 const (
 	ChannelMetrics = "pulsecraft:metrics"
 	ChannelAlerts  = "pulsecraft:alerts"
 )
 
-// MetricEvent: bir sunucudan gelen yeni metrik örneği. WebSocket istemcilerine
-// olduğu gibi iletilir; "type" alanı istemcinin mesajı ayırt etmesi içindir.
+// MetricEvent is forwarded to WebSocket clients as is; Type lets clients tell messages apart.
 type MetricEvent struct {
-	Type         string    `json:"type"` // "metric"
+	Type         string    `json:"type"`
 	NodeID       string    `json:"node_id"`
 	Time         time.Time `json:"time"`
 	CPUPercent   float64   `json:"cpu_percent"`
@@ -23,9 +21,8 @@ type MetricEvent struct {
 	Load1        *float64  `json:"load1,omitempty"`
 }
 
-// AlertEvent: bir alarmın yaşam döngüsündeki değişiklik.
 type AlertEvent struct {
-	Type         string    `json:"type"`  // "alert"
+	Type         string    `json:"type"`
 	Event        string    `json:"event"` // "opened" | "acknowledged" | "resolved"
 	AlertID      int64     `json:"alert_id"`
 	RuleID       int64     `json:"rule_id"`
@@ -40,29 +37,28 @@ type AlertEvent struct {
 	Status       string    `json:"status"`
 	TriggeredAt  time.Time `json:"triggered_at"`
 
-	// İstemci, olaydan alarm satırını REST'e gitmeden kurabilsin diye olay alarmın TÜM
-	// alanlarını taşır (GET /api/v1/alerts satırıyla aynı bilgi). Henüz olmamış zamanlar null.
+	// The event carries the full alert row (same as GET /api/v1/alerts), so clients can build the row
+	// without a REST call. Times that have not happened yet are null.
 	AcknowledgedAt *time.Time `json:"acknowledged_at"`
 	ResolvedAt     *time.Time `json:"resolved_at"`
 
-	// AcknowledgedBy: alarmı "incelemeye alan" kullanıcının görünen adı. İncelemeye alınmış
-	// alarmın "acknowledged" ve sonradan gelen "resolved" olaylarında dolu, aksi halde JSON'da yok.
+	// AcknowledgedBy is the display name of the acknowledging user; set on "acknowledged" and later
+	// "resolved" events, absent otherwise.
 	AcknowledgedBy string `json:"acknowledged_by,omitempty"`
 }
 
-// RuleEvent: alarm kuralıyla ilgili değişiklik. Şimdilik yalnızca "deleted": kural silinince
-// ona bağlı TÜM alarm satırları (geçmiş dahil) veritabanından cascade ile silinir; istemciler
-// bu olayla o kurala ait satırları listelerinden atar.
+// RuleEvent: currently only "deleted". Deleting a rule cascades to all of its alert rows (history
+// included), so clients drop those rows.
 type RuleEvent struct {
-	Type   string `json:"type"`  // "rule"
-	Event  string `json:"event"` // "deleted"
+	Type   string `json:"type"`
+	Event  string `json:"event"`
 	RuleID int64  `json:"rule_id"`
 }
 
-// NodeEvent: bir sunucu silindi. Sunucunun TÜM alarm satırları (geçmiş dahil) cascade ile silindiği için
-// istemciler o sunucuya ait satırları listelerinden atar (alarm kanalında yayınlanır).
+// NodeEvent: a node was deleted. Its alert rows went with it (cascade), so clients drop them. Published
+// on the alerts channel.
 type NodeEvent struct {
-	Type   string `json:"type"`  // "node"
-	Event  string `json:"event"` // "deleted"
+	Type   string `json:"type"`
+	Event  string `json:"event"`
 	NodeID string `json:"node_id"`
 }

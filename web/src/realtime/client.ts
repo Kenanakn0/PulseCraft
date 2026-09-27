@@ -1,11 +1,11 @@
 import { parseEvent, type RealtimeEvent } from './events'
 
-/** Sunucunun, oturum bittiğinde (logout / token süresi) WebSocket'i kapattığı özel kod. */
+/** Close code the server uses when the session ends (logout or token expiry). */
 export const CLOSE_SESSION_ENDED = 4401
 
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed'
 
-/** Tarayıcı WebSocket'inin kullandığımız bölümü; testte sahtesi verilebilsin diye ayrı arayüz. */
+/** The part of the browser WebSocket we use; a separate interface so tests can fake it. */
 export interface SocketLike {
   onopen: ((ev: Event) => void) | null
   onmessage: ((ev: MessageEvent) => void) | null
@@ -19,28 +19,29 @@ export interface ClientOptions {
   createSocket: (url: string) => SocketLike
   onEvent: (event: RealtimeEvent) => void
   onStatus: (status: ConnectionStatus) => void
-  /** Bağlantı (yeniden bağlanma dahil) açıldığında. `reconnected`: bu ilk açılış DEĞİL. */
+  /**
+   * Called when a connection (including a reconnect) opens; `reconnected` is false only for the first one.
+   */
   onOpen: (reconnected: boolean) => void
-  /** Sunucu 4401 ile kapattı: yeniden bağlanma YOK. */
+  /** The server closed with 4401: NO reconnect. */
   onSessionEnded: () => void
-  /** 4401 dışı her kopmada çağrılır (ör. oturum hâlâ geçerli mi diye sormak için). */
+  /** Called on every disconnect except 4401 (e.g. to check whether the session is still valid). */
   onAbnormalClose?: (code: number) => void
   baseDelayMs?: number
   maxDelayMs?: number
-  /** Bağlantı bu kadar süre açık kalırsa "sağlıklı" sayılıp backoff sıfırlanır. */
+  /** A connection that stays open this long counts as healthy and resets the backoff. */
   stableAfterMs?: number
   random?: () => number
 }
 
 /**
- * Otomatik yeniden bağlanan WebSocket istemcisi. React'ten bağımsızdır (C#'ta bir arka plan
- * servisi / SignalR HubConnection'ın `WithAutomaticReconnect`'i gibi): yaşam döngüsünü
- * `start()`/`stop()` yönetir, olayları geri çağrımlarla bildirir.
+ * Auto-reconnecting WebSocket client, independent of React: `start()`/`stop()` control its lifetime and
+ * callbacks report events.
  *
- * Yeniden bağlanma: üstel geri çekilme (1 sn, 2, 4 … tavan 30 sn) + rastgele "jitter". Jitter,
- * sunucu düşüp kalktığında tüm istemcilerin AYNI anda yeniden denemesini (thundering herd) önler.
- * Backoff, yalnızca bağlantı `stableAfterMs` boyunca açık kalırsa sıfırlanır; açılır açılmaz
- * düşen bir sunucuda saniyede bir vuran sıkı bir döngü oluşmaz.
+ * Reconnects use exponential backoff (1 s, 2, 4 … up to 30 s) plus random jitter, so that clients do not
+ * all retry at the same moment when the server comes back (thundering herd). The backoff resets only after
+ * the connection stayed open for `stableAfterMs`, so a server that accepts and drops at once does not
+ * get hammered every second.
  */
 export class RealtimeClient {
   private socket: SocketLike | null = null
@@ -65,7 +66,7 @@ export class RealtimeClient {
     const socket = this.socket
     this.socket = null
     if (socket !== null) {
-      // Olay yöneticilerini önce sök: kapanış sonradan "kopma" gibi işlenip yeniden bağlanma planlamasın.
+      // Detach the handlers first so the close is not handled as a drop that schedules a reconnect.
       socket.onopen = socket.onmessage = socket.onclose = socket.onerror = null
       socket.close(1000)
     }
@@ -94,7 +95,7 @@ export class RealtimeClient {
       if (event !== null) this.options.onEvent(event)
     }
 
-    // onerror'a ayrıca gerek yok: tarayıcı hatadan hemen sonra onclose'u da çağırır.
+    // No onerror needed: the browser calls onclose right after an error.
     socket.onclose = (ev) => {
       if (this.socket !== socket) return
       this.socket = null
@@ -120,7 +121,7 @@ export class RealtimeClient {
     const ceiling = Math.min(max, base * 2 ** this.attempt)
     this.attempt++
     const random = this.options.random ?? Math.random
-    const delay = ceiling * (0.5 + random() * 0.5) // ceiling'in %50-%100'ü
+    const delay = ceiling * (0.5 + random() * 0.5) // 50-100 % of the ceiling
     this.retryTimer = setTimeout(() => this.connect(), delay)
   }
 }

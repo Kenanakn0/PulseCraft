@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-var validKey = strings.Repeat("ab", 32) // 64 onaltılık karakter
+var validKey = strings.Repeat("ab", 32)
 
-// fakeInput: gerçek terminal/dosya yerine kullanılan sahte girdi. passwords sırayla "yapıştırılan" satırlardır.
 type fakeInput struct {
 	terminal  bool
 	passwords []string

@@ -26,7 +26,7 @@ func TestDenylist_Watch(t *testing.T) {
 		t.Fatal("iptal edilmeden channel'lar kapanmamalı")
 	}
 
-	// a'yı izleyenlerden biri vazgeçer: yalnızca kalan izleyici uyandırılmalı.
+	// One of a's watchers gives up: only the other one must be woken.
 	cancelA1()
 	d.Revoke("a", time.Now().Add(time.Hour))
 	if !isClosed(a2) {
@@ -38,19 +38,18 @@ func TestDenylist_Watch(t *testing.T) {
 	if isClosed(b) {
 		t.Error("iptal edilmeyen b etkilenmemeli")
 	}
-	cancelA2() // Revoke'tan sonra cancel çağrısı güvenli olmalı (panik yok)
+	cancelA2() // cancel after Revoke must be safe
 
-	// İkinci Revoke de güvenli olmalı.
 	d.Revoke("a", time.Now().Add(time.Hour))
 
-	// Zaten iptal edilmiş jti izlenirse channel baştan kapalı gelir (yarış koruması).
+	// Watching an already revoked jti returns a closed channel (race protection).
 	late, cancelLate := d.Watch("a")
 	defer cancelLate()
 	if !isClosed(late) {
 		t.Error("iptal edilmiş jti için Watch kapalı channel dönmeli")
 	}
 
-	if n := len(d.watchers); n != 1 { // yalnızca b kaldı
+	if n := len(d.watchers); n != 1 { // only b left
 		t.Errorf("izleyici kaydı sızıyor: %d anahtar, beklenen 1", n)
 	}
 }
@@ -70,12 +69,10 @@ func TestDenylist_RevokeAndCleanup(t *testing.T) {
 		t.Error("iptal edilmemiş jti reddedilmemeli")
 	}
 
-	// Henüz hiçbir şeyin süresi dolmadı: temizlik bir şey silmemeli.
 	if n := d.Cleanup(); n != 0 || d.Len() != 2 {
 		t.Errorf("erken temizlik: silinen=%d, kalan=%d", n, d.Len())
 	}
 
-	// 30 dk sonra: sadece kısa ömürlü kayıt silinmeli.
 	now = now.Add(30 * time.Minute)
 	if n := d.Cleanup(); n != 1 {
 		t.Errorf("silinen = %d, beklenen 1", n)
@@ -87,7 +84,6 @@ func TestDenylist_RevokeAndCleanup(t *testing.T) {
 		t.Error("süresi dolmayan kayıt korunmalı")
 	}
 
-	// 9 saat sonra hepsi gider.
 	now = now.Add(9 * time.Hour)
 	d.Cleanup()
 	if d.Len() != 0 {

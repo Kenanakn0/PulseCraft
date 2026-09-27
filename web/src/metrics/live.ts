@@ -2,8 +2,8 @@ import type { MetricEvent } from '../realtime/events'
 import { capPoints, MAX_POINTS, type ChartPoint } from './series'
 
 /**
- * Bir olayın zamanı, REST penceresinin bitişinden bu kadar ms'den fazla ileride ise (agent saati çok
- * ileri olabilir) yok sayılır: tek bozuk saat tüm grafiği ileri kaydırmasın.
+ * An event more than this many ms past the end of the REST window is ignored (the agent's clock may be
+ * far ahead): one broken clock must not shift the whole chart.
  */
 export const MAX_AHEAD_MS = 2 * 60_000
 
@@ -18,7 +18,10 @@ export function eventToPoint(ev: MetricEvent): ChartPoint {
   }
 }
 
-/** Canlı tamponuna nokta ekler. Sondakinden eski/aynı zamanlı nokta yok sayılır (idempotent); tampon sınırlıdır. */
+/**
+ * Appends to the live buffer. Points older than or equal to the last one are ignored (idempotent); the
+ * buffer is bounded.
+ */
 export function appendLive(live: readonly ChartPoint[], point: ChartPoint): readonly ChartPoint[] {
   const last = live[live.length - 1]
   if (last !== undefined && point.t <= last.t) return live
@@ -32,10 +35,10 @@ export interface LiveChart {
 }
 
 /**
- * REST'ten gelen geçmişin ÜSTÜNE canlı noktaları ekler ve pencereyi KAYDIRIR: bitiş yeni noktaya
- * ilerler, başlangıç aynı miktarda ilerler (pencere genişliği sabit) ve pencerenin dışına düşen eski
- * noktalar atılır. Böylece nokta sayısı seçili pencereyle sınırlı kalır. REST verisinin son
- * noktasından eski/aynı canlı noktalar zaten REST'te vardır ve atlanır. Girdileri DEĞİŞTİRMEZ.
+ * Appends live points to the REST history and SLIDES the window: the end moves to the newest point, the
+ * start moves by the same amount (constant width) and points that fall out are dropped, so the point count
+ * stays bounded. Live points not newer than the last REST point are already included and skipped. Does not
+ * mutate its inputs.
  */
 export function mergeLivePoints(
   base: readonly ChartPoint[],

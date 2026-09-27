@@ -3,16 +3,15 @@ import { mkdirSync, rmSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { USER1_STATE, USER2_STATE } from './auth-state'
 
-// "Setup projesi" (playwright.config.ts → projects): diğer tüm testlerden ÖNCE, web sunucusu ayaktayken bir kez
-// çalışır. Giriş baseURL (Vite, localhost:5173) üzerinden yapılır ki çerez tarayıcının kullanacağı alan adına yazılsın.
-// C# karşılığı: xUnit'te tüm test sınıflarının paylaştığı bir ICollectionFixture.
+// Setup project: runs once before all other tests, while the web server is up. It logs in through the
+// baseURL (Vite, localhost:5173) so the cookie is stored for the domain the browser will use.
 const users = [
   { email: process.env.E2E_EMAIL, password: process.env.E2E_PASSWORD, file: USER1_STATE },
   { email: process.env.E2E_EMAIL2, password: process.env.E2E_PASSWORD2, file: USER2_STATE },
 ]
 
 setup('oturumları hazırla (kullanıcı başına tek giriş)', async ({ baseURL }) => {
-  rmSync(dirname(USER1_STATE), { recursive: true, force: true }) // eski (belki iptal edilmiş) oturumlar kalmasın
+  rmSync(dirname(USER1_STATE), { recursive: true, force: true }) // no stale (possibly revoked) sessions
   mkdirSync(dirname(USER1_STATE), { recursive: true })
 
   for (const { email, password, file } of users) {

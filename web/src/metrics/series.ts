@@ -1,28 +1,26 @@
 import type { MetricsRangeResponse } from '../api/types'
 
-/** Grafiklerin kullandığı, ham ve özet verinin ORTAK biçimi. */
+/** Common shape of raw and aggregated data used by the charts. */
 export interface ChartPoint {
-  /** Zaman (ms, epoch). */
+  /** Time (ms since epoch). */
   t: number
   cpu: number
   mem: number
   disk: number
-  /** Ağdan alınan / gönderilen (byte/sn). */
+  /** Received / sent (bytes per second). */
   rx: number
   tx: number
 }
 
 /**
- * Bellekte ve çizimde tutulacak en fazla nokta. Seçili pencere zaten sınırlıdır (15 dk … 24 sa) ve
- * çizimde Chart.js decimation (LTTB) ile ayrıca seyreltilir; bu tavan, beklenmedik büyüklükte bir
- * yanıtın tarayıcıyı yormasına karşı son güvencedir.
+ * Upper bound of points kept and drawn. The selected window is already bounded (15 min … 24 h) and
+ * Chart.js decimates further; this cap is the last guard against an unexpectedly large response.
  */
 export const MAX_POINTS = 2000
 
 /**
- * Sunucu yanıtını ortak noktalara çevirir: ham ve özet veriyi aynı biçime getirir, geçersiz
- * (sayı olmayan) satırları atar, zamana göre sıralar. `resolution` ayırt edici alan olduğu için
- * TypeScript her dalda doğru nokta tipini bilir.
+ * Converts the server response to common points: raw and aggregated data get the same shape, rows with
+ * non-numeric values are dropped, and points are sorted by time.
  */
 export function toChartPoints(response: MetricsRangeResponse): ChartPoint[] {
   const points: ChartPoint[] =
@@ -52,8 +50,8 @@ export function toChartPoints(response: MetricsRangeResponse): ChartPoint[] {
 }
 
 /**
- * `max`'ı aşan diziyi, eşit aralıklı noktalar seçerek küçültür; SON nokta her zaman korunur
- * (en güncel değer kaybolmasın). Sıralı diziyi bozmaz, girdiyi değiştirmez.
+ * Shrinks an array longer than `max` by picking evenly spaced points; the LAST point is always kept (the
+ * newest value must not disappear). Keeps the order and does not mutate the input.
  */
 export function capPoints(points: readonly ChartPoint[], max: number = MAX_POINTS): ChartPoint[] {
   if (points.length <= max) return [...points]

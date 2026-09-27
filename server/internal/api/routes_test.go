@@ -16,8 +16,8 @@ import (
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
-// newFullAPI: gerçek Routes() ağacını, DB'siz kurar. Oturum kontrolü handler'lardan
-// ÖNCE çalıştığı için, oturumsuz istekler DB'ye hiç ulaşmaz.
+// newFullAPI builds the real route tree without a database. The session check runs before the
+// handlers, so unauthenticated requests never reach the DB.
 func newFullAPI(t *testing.T, ttl time.Duration) *API {
 	t.Helper()
 	return &API{
@@ -29,17 +29,16 @@ func newFullAPI(t *testing.T, ttl time.Duration) *API {
 	}
 }
 
-// Oturum GEREKTİRMEYEN, bilerek açık bırakılan tek route'lar.
+// The only routes that are deliberately public.
 var publicRoutes = map[string]bool{
 	"GET /healthz":             true,
 	"POST /api/v1/auth/login":  true,
 	"POST /api/v1/auth/logout": true,
-	"POST /api/v1/metrics":     true, // agent, node API key'iyle (Bearer) kimlik doğrular
+	"POST /api/v1/metrics":     true, // the agent authenticates with its node API key
 }
 
-// Bu test, Routes() ağacındaki HER route'u dolaşır: açıkça public listesinde
-// olmayan her route oturumsuz istekte 401 dönmek zorundadır. Böylece ileride
-// eklenen bir route'u korumasız bırakmak testi kırar.
+// Walks every route: anything not explicitly public must answer 401 without a session, so a new route
+// left unprotected breaks this test.
 func TestRoutes_OnlyExplicitlyPublicOnesSkipSession(t *testing.T) {
 	a := newFullAPI(t, time.Hour)
 	router := a.Routes()
@@ -77,7 +76,7 @@ func TestRoutes_OnlyExplicitlyPublicOnesSkipSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Testin boş geçmediğinden emin ol: beklenen route sayıları.
+	// Make sure the walk actually visited the routes.
 	if public != len(publicRoutes) {
 		t.Errorf("public route sayısı = %d, beklenen %d (listedeki bir route artık yok mu?)", public, len(publicRoutes))
 	}
@@ -86,8 +85,7 @@ func TestRoutes_OnlyExplicitlyPublicOnesSkipSession(t *testing.T) {
 	}
 }
 
-// Agent ucu oturum middleware'inin ARKASINDA olmamalı: kendi kimlik doğrulama
-// mesajını vermeli ("oturum gerekli" değil).
+// The agent endpoint must not sit behind the session middleware.
 func TestIngestMetrics_UsesAPIKeyNotSession(t *testing.T) {
 	a := newFullAPI(t, time.Hour)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics", strings.NewReader(`{"samples":[]}`))
@@ -98,8 +96,6 @@ func TestIngestMetrics_UsesAPIKeyNotSession(t *testing.T) {
 		t.Errorf("kod = %d, gövde = %q; API key (Bearer) istemeli", rec.Code, rec.Body.String())
 	}
 }
-
-// ---- WebSocket + oturum ----
 
 func startServer(t *testing.T, a *API) *httptest.Server {
 	t.Helper()
@@ -142,11 +138,8 @@ func doLogout(t *testing.T, srv *httptest.Server, token string) {
 	}
 }
 
-// watchClose: bağlantıyı tek bir goroutine'de sürekli okur; bağlantı kapanınca
-// kapanma kodunu kanala yazar. NEDEN Read'i zaman aşımıyla yoklamıyoruz:
-// coder/websocket'te context'i süresi dolan bir Read bağlantıyı KAPATIR;
-// "hâlâ açık mı" diye kısa zaman aşımlı Read atmak bağlantıyı bizim öldürmemize
-// yol açar.
+// watchClose reads continuously and reports the close code. Polling Read with a timeout would not work:
+// in coder/websocket a Read whose context expires closes the connection.
 func watchClose(conn *websocket.Conn) <-chan websocket.StatusCode {
 	ch := make(chan websocket.StatusCode, 1)
 	go func() {
@@ -199,7 +192,6 @@ func TestWS_RejectsUnauthenticated(t *testing.T) {
 		}
 	}
 
-	// Revoke edilmiş oturumla da bağlanılamaz.
 	tok := issue(t, a, 1)
 	doLogout(t, srv, tok)
 	if conn, resp, err := dialWS(t, srv, cookieHeader(tok)); err == nil {
@@ -226,7 +218,6 @@ func TestWS_OriginCheckStillEnforcedWithValidSession(t *testing.T) {
 	}
 }
 
-// İstenen senaryo: girişli WS aç → logout → bağlantı kapanmalı.
 func TestWS_ClosedByServerOnLogout(t *testing.T) {
 	a := newFullAPI(t, time.Hour)
 	srv := startServer(t, a)
@@ -244,7 +235,6 @@ func TestWS_ClosedByServerOnLogout(t *testing.T) {
 	defer connB.CloseNow()
 	closedA, closedB := watchClose(connA), watchClose(connB)
 
-	// Logout'tan önce ikisi de açık.
 	expectOpen(t, closedA, 300*time.Millisecond)
 
 	start := time.Now()
@@ -257,17 +247,17 @@ func TestWS_ClosedByServerOnLogout(t *testing.T) {
 		t.Errorf("bağlantı logout'tan %v sonra kapandı; anında (<1s) kapanmalıydı", elapsed)
 	}
 
-	// Başka kullanıcının bağlantısı etkilenmez.
+	// Another user's connection is unaffected.
 	expectOpen(t, closedB, 300*time.Millisecond)
 }
 
 func TestWS_ClosedByServerAtTokenExpiry(t *testing.T) {
-	// JWT exp saniye hassasiyetinde kırpıldığı için TTL 2 sn: token en az ~1 sn geçerli kalır.
+	// JWT exp is truncated to seconds, so a 2 s TTL keeps the token valid for at least ~1 s.
 	short := newFullAPI(t, 2*time.Second)
 	srv := startServer(t, short)
 	shortTok := issue(t, short, 1)
 
-	// Kontrol: uzun ömürlü oturum aynı sunucuda açık kalır.
+	// Control: a long-lived session on the same server stays open.
 	long := auth.NewTokenService(apiTestSecret, time.Hour)
 	longTok, _, _ := long.Issue(auth.User{ID: 2, Email: "user@example.test", DisplayName: "Kullanici"})
 

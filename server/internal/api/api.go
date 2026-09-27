@@ -15,17 +15,13 @@ import (
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
-// API: tüm HTTP handler'ların paylaştığı bağımlılıkları tutar. C#'taki bir
-// Controller'ın constructor injection ile aldığı bağımlılıklara benzer, ama
-// Go'da DI container yok — bağımlılıkları elle bir struct'a koyup
-// metotları o struct üzerinde tanımlıyoruz.
+// API holds the dependencies shared by all handlers.
 type API struct {
 	DB     *pgxpool.Pool
 	Engine *alerting.Engine
 	Pub    *realtime.Publisher
 	Hub    *realtime.Hub
 
-	// Kimlik doğrulama (Evre 4.0)
 	Tokens       *auth.TokenService
 	Denylist     *auth.Denylist
 	LoginLimiter *auth.RateLimiter
@@ -33,23 +29,21 @@ type API struct {
 	CookieSecure bool
 }
 
-// Routes: tüm route'ları bir chi.Router üzerinde tanımlar.
 func (a *API) Routes() chi.Router {
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(newCrossOriginProtection().Handler)
 	r.Use(limitBody(maxRequestBody))
 
-	// ---- Oturum GEREKTİRMEYENLER (yalnızca bunlar; başka her şey aşağıdaki grupta) ----
+	// Public routes: only these. Everything else goes into the group below.
 	r.Get("/healthz", a.handleHealthz)
 	r.Post("/api/v1/auth/login", a.handleLogin)
 	r.Post("/api/v1/auth/logout", a.handleLogout)
-	// Agent'lar oturum değil node API key'iyle (Bearer) kimlik doğrular.
+	// Agents authenticate with their node API key (Bearer), not a session.
 	r.Post("/api/v1/metrics", a.handleIngestMetrics)
 
-	// ---- Oturum GEREKTİRENLER ----
-	// Yeni bir route'u yanlışlıkla korumasız bırakmamak için hepsi tek grupta;
-	// TestRoutes_OnlyExplicitlyPublicOnesSkipSession bunu zorlar.
+	// All session routes live in one group so a new route cannot be left unprotected by accident;
+	// TestRoutes_OnlyExplicitlyPublicOnesSkipSession enforces this.
 	r.Group(func(r chi.Router) {
 		r.Use(a.requireAuth)
 
@@ -103,9 +97,8 @@ func limitBody(n int64) func(http.Handler) http.Handler {
 	}
 }
 
-// handleWS: oturumu doğrulanmış (requireAuth) isteği WebSocket'e yükseltir.
-// Bağlantı, token'ın süresi dolduğunda ya da logout ile iptal edildiğinde
-// SUNUCU tarafından kapatılır (close code 4401).
+// handleWS upgrades an authenticated request. The server closes the connection with code 4401 when the
+// token expires or is revoked by logout.
 func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
@@ -113,16 +106,15 @@ func (a *API) handleWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Watch, requireAuth'taki IsRevoked kontrolüyle yükseltme arasında araya
-	// giren bir logout'u da yakalar (iptal edilmişse channel baştan kapalıdır).
+	// Watch also catches a logout between requireAuth's check and the upgrade (the channel is then
+	// already closed).
 	revoked, unwatch := a.Denylist.Watch(claims.ID)
 	defer unwatch()
 
 	a.Hub.ServeWS(w, r, realtime.Session{ExpiresAt: claims.ExpiresAt.Time, Revoked: revoked})
 }
 
-// handleHealthz: DB'ye gerçekten ping atarak sunucunun ve veritabanının
-// ayakta olup olmadığını doğrular.
+// handleHealthz pings the database, so the health check fails when the DB is unreachable.
 func (a *API) handleHealthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 

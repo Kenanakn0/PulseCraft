@@ -14,11 +14,10 @@ import (
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
-// Rule: alert_rules tablosundaki bir kuralın bellekteki hali.
 type Rule struct {
 	ID              int64
 	Name            string
-	NodeID          *string // nil = tüm sunucular
+	NodeID          *string // nil = all servers
 	Metric          string
 	Operator        string
 	Threshold       float64
@@ -26,9 +25,7 @@ type Rule struct {
 	Severity        string
 }
 
-// Sample: motorun değerlendirmek için ihtiyaç duyduğu alanlar. api paketinin
-// metricSample tipini import etmemek için (döngüsel bağımlılık olmasın diye)
-// burada ayrıca tanımlı.
+// Sample is defined here rather than importing the api package's type, to avoid an import cycle.
 type Sample struct {
 	Time        time.Time
 	CPUPercent  float64
@@ -48,24 +45,20 @@ func (s Sample) value(metric string) (float64, bool) {
 	return 0, false
 }
 
-// key: (kural, sunucu) çifti. Go'da struct'lar map anahtarı olabilir — C#'taki
-// Dictionary<(long, string), ...> (ValueTuple anahtar) gibi.
 type key struct {
 	ruleID int64
 	nodeID string
 }
 
-// Engine: kuralları bellekte tutar, gelen örnekleri değerlendirir, alarm açar/kapatır.
 type Engine struct {
 	db  *pgxpool.Pool
 	pub *realtime.Publisher
 
-	// mu, aşağıdaki alanları korur. Birden fazla agent aynı anda POST attığında
-	// Evaluate eşzamanlı çağrılır; C#'taki lock (obj) { ... } karşılığı.
+	// mu guards the fields below: Evaluate runs concurrently when several agents post at once.
 	mu          sync.Mutex
 	rules       []Rule
-	breachStart map[key]time.Time // eşik aşımının başladığı an (örnek zamanı)
-	active      map[key]bool      // şu an açık/incelemede alarmı olan (kural, sunucu) çiftleri
+	breachStart map[key]time.Time // sample time when the threshold was first breached
+	active      map[key]bool      // (rule, node) pairs with an open or acknowledged alert
 }
 
 func New(db *pgxpool.Pool, pub *realtime.Publisher) *Engine {
@@ -77,8 +70,7 @@ func New(db *pgxpool.Pool, pub *realtime.Publisher) *Engine {
 	}
 }
 
-// Refresh: aktif kuralları ve açık alarmları DB'den yeniden yükler.
-// DB sorguları kilit dışında yapılır, sadece sonuç değiştirilirken kilitlenir.
+// Refresh reloads rules and active alerts. Queries run outside the lock; only the swap is locked.
 func (e *Engine) Refresh(ctx context.Context) error {
 	rules, err := e.loadRules(ctx)
 	if err != nil {
@@ -95,7 +87,7 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	e.rules = rules
 	e.active = active
 
-	// Silinmiş/devre dışı kurallara ait eşik aşımı kayıtlarını temizle.
+	// Forget breach starts of rules that were deleted or disabled.
 	valid := make(map[int64]bool, len(rules))
 	for _, r := range rules {
 		valid[r.ID] = true
@@ -110,7 +102,6 @@ func (e *Engine) Refresh(ctx context.Context) error {
 	return nil
 }
 
-// Run: interval aralığıyla kuralları yeniler; ctx iptal edilince durur.
 func (e *Engine) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -167,24 +158,19 @@ func (e *Engine) loadActiveAlerts(ctx context.Context) (map[key]bool, error) {
 	return active, rows.Err()
 }
 
-// Evaluate: bir sunucudan gelen örnekleri, zaman sırasıyla tüm ilgili kurallara
-// karşı değerlendirir. Süre (duration_seconds) hesabı duvar saati değil ÖRNEK
-// zamanıyla yapılır: agent, sunucuya ulaşamadığı dönemin verisini toplu
-// gönderdiğinde de doğru sonuç çıksın diye.
+// Evaluate checks the samples in time order against all matching rules. Durations use sample
+// timestamps, not the wall clock, so a backlog sent after an outage is evaluated as it happened.
 func (e *Engine) Evaluate(ctx context.Context, nodeID string, samples []Sample) {
 	slices.SortFunc(samples, func(a, b Sample) int { return a.Time.Compare(b.Time) })
 
 	events := e.evaluateLocked(ctx, nodeID, samples)
 
-	// Redis'e yayın, kilit bırakıldıktan sonra yapılır: ağ gecikmesi diğer
-	// agent'ların değerlendirmesini bekletmesin.
+	// Publish after releasing the lock so network latency does not block other agents.
 	for _, ev := range events {
 		e.pub.PublishAlert(ev)
 	}
 }
 
-// evaluateLocked: kilidi kendi içinde alıp bırakır (defer sayesinde) ve
-// oluşan alarm olaylarını döndürür.
 func (e *Engine) evaluateLocked(ctx context.Context, nodeID string, samples []Sample) []realtime.AlertEvent {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -229,11 +215,9 @@ func (e *Engine) evaluateLocked(ctx context.Context, nodeID string, samples []Sa
 	return events
 }
 
-// openAlert: kilit tutulurken çağrılır. Partial unique index sayesinde aynı
-// (kural, sunucu) için ikinci bir aktif alarm zaten açılamaz; ON CONFLICT
-// DO NOTHING bu durumu hata saymadan yutar. Bu durumda RETURNING satır
-// döndürmez (pgx.ErrNoRows) ve yeni bir olay üretilmez.
-// Sunucu adı, olay istemcide REST'e gitmeden satır kurabilsin diye aynı sorguda okunur.
+// openAlert is called with the lock held. The partial unique index makes a second active alert for
+// the same (rule, node) impossible; ON CONFLICT DO NOTHING turns that into "no row" instead of an error,
+// and no event is produced. The node name is read in the same query so the event carries a full row.
 func (e *Engine) openAlert(ctx context.Context, r Rule, nodeID string, value float64, k key) *realtime.AlertEvent {
 	var alertID int64
 	var triggeredAt time.Time
@@ -247,12 +231,12 @@ func (e *Engine) openAlert(ctx context.Context, r Rule, nodeID string, value flo
 		 SELECT i.id, i.triggered_at, n.name FROM i JOIN nodes n ON n.id = i.node_id`,
 		r.ID, nodeID, value).Scan(&alertID, &triggeredAt, &nodeName)
 	if errors.Is(err, pgx.ErrNoRows) {
-		e.active[k] = true // zaten açık bir alarm var (ör. restart sonrası)
+		e.active[k] = true // already open (e.g. after a restart)
 		return nil
 	}
 	if err != nil {
 		slog.Error("alarm açılamadı", "rule_id", r.ID, "node_id", nodeID, "err", err)
-		return nil // active işaretlenmez, sonraki örnekte tekrar denenir
+		return nil // not marked active: retried on the next sample
 	}
 
 	e.active[k] = true
@@ -266,10 +250,8 @@ func (e *Engine) openAlert(ctx context.Context, r Rule, nodeID string, value flo
 	}
 }
 
-// resolvedEventsSQL: aktif (open/acknowledged) alarmları 'resolved' yapar ve her biri için olayın
-// ihtiyaç duyduğu TÜM alanları (kural, sunucu adı, varsa incelemeye alan kullanıcı) döndürür.
-// $1 = kural id, $2 = sunucu id ya da NULL, $3 = true ise $2 dışındaki sunucular, false ise yalnızca $2.
-// (NULL $2: kuralın tüm aktif alarmları.)
+// resolvedEventsSQL resolves active alerts and returns everything an event needs.
+// $1 = rule id, $2 = node id or NULL (all nodes), $3 = true: every node except $2, false: only $2.
 const resolvedEventsSQL = `
 WITH u AS (
     UPDATE alerts SET status = 'resolved', resolved_at = now()
@@ -286,8 +268,7 @@ JOIN nodes n ON n.id = u.node_id
 LEFT JOIN users usr ON usr.id = u.acknowledged_by
 ORDER BY u.id`
 
-// resolvedByNodeSQL: resolvedEventsSQL'in node'a göre olanı: $1 sunucusunun TÜM kurallardaki aktif
-// alarmlarını çözer (sunucu silinmeden önce kullanılır). Döndürdüğü sütunlar aynıdır.
+// resolvedByNodeSQL resolves all active alerts of node $1, across rules (used before deleting a node).
 const resolvedByNodeSQL = `
 WITH u AS (
     UPDATE alerts SET status = 'resolved', resolved_at = now()
@@ -303,12 +284,10 @@ JOIN nodes n ON n.id = u.node_id
 LEFT JOIN users usr ON usr.id = u.acknowledged_by
 ORDER BY u.id`
 
-// queryResolved: resolvedEventsSQL'i çalıştırıp olayları kurar (yayınlamaz).
 func (e *Engine) queryResolved(ctx context.Context, ruleID int64, nodeID *string, except bool) ([]realtime.AlertEvent, error) {
 	return e.queryResolvedSQL(ctx, resolvedEventsSQL, ruleID, nodeID, except)
 }
 
-// queryResolvedSQL: "çöz ve olay alanlarını döndür" sorgularından birini çalıştırıp olayları kurar.
 func (e *Engine) queryResolvedSQL(ctx context.Context, sql string, args ...any) ([]realtime.AlertEvent, error) {
 	rows, err := e.db.Query(ctx, sql, args...)
 	if err != nil {
@@ -341,7 +320,7 @@ func (e *Engine) resolveAlert(ctx context.Context, r Rule, nodeID string, k key)
 		return nil
 	}
 
-	delete(e.active, k) // DB'de aktif alarm yoksa da (zaten kapanmış) işaret temizlenir
+	delete(e.active, k) // cleared even if nothing was active in the DB
 	if len(events) == 0 {
 		return nil
 	}
@@ -349,16 +328,10 @@ func (e *Engine) resolveAlert(ctx context.Context, r Rule, nodeID string, k key)
 	return &events[0]
 }
 
-// ResolveRuleAlerts: bir kuralın aktif alarmlarını çözer ve her biri için "resolved" olayı yayınlar.
-// Kural devre dışı bırakılınca ya da silinmeden önce çağrılır: motor devre dışı kuralı artık
-// değerlendirmediği için bu alarmlar aksi halde sonsuza dek "açık" kalırdı.
-//
-//	exceptNodeID == nil : kuralın TÜM aktif alarmları çözülür.
-//	exceptNodeID != nil : yalnızca O SUNUCUNUN DIŞINDAKİ alarmlar çözülür (kural tek bir sunucuya
-//	                      daraltıldıysa, kapsam dışında kalan sunucuların alarmları takılı kalmasın).
-//
-// Çözülen olayları döndürür. Motorun bellek durumu (active/breachStart) da temizlenir; böylece kural
-// sonradan yeniden etkinleştirilirse yeni alarm normal şekilde açılabilir.
+// ResolveRuleAlerts resolves a rule's active alerts and publishes "resolved" events. It is called when a
+// rule is disabled or before it is deleted: the engine no longer evaluates such a rule, so its alerts
+// would otherwise stay open forever. With exceptNodeID set, only alerts of other nodes are resolved (the
+// rule was narrowed to that node). The engine state is cleared too, so a re-enabled rule can alert again.
 func (e *Engine) ResolveRuleAlerts(ctx context.Context, ruleID int64, exceptNodeID *string) ([]realtime.AlertEvent, error) {
 	e.mu.Lock()
 	events, err := e.queryResolved(ctx, ruleID, exceptNodeID, true)
@@ -366,9 +339,8 @@ func (e *Engine) ResolveRuleAlerts(ctx context.Context, ruleID int64, exceptNode
 		for _, ev := range events {
 			delete(e.active, key{ruleID: ruleID, nodeID: ev.NodeID})
 		}
-		// Henüz alarm açmamış (süre dolmamış) eşik aşımı kayıtları da temizlenir: aksi halde kapsam
-		// sonradan yeniden genişleyince, izlenmediği dönemden kalan eski başlangıç zamanı süre hesabına
-		// girer ve alarm haksız yere hemen açılırdı.
+		// Also forget breach starts that have not opened an alert yet: otherwise, when the scope widens
+		// again, a stale start time would count toward the duration and open an alert immediately.
 		for k := range e.breachStart {
 			if k.ruleID == ruleID && (exceptNodeID == nil || k.nodeID != *exceptNodeID) {
 				delete(e.breachStart, k)
@@ -380,7 +352,6 @@ func (e *Engine) ResolveRuleAlerts(ctx context.Context, ruleID int64, exceptNode
 		return nil, err
 	}
 
-	// Yayın kilit dışında (Publisher zaten kuyrukla çalışır, yine de kilidi kısa tutuyoruz).
 	for _, ev := range events {
 		e.pub.PublishAlert(ev)
 	}
@@ -404,10 +375,8 @@ func breached(value float64, operator string, threshold float64) bool {
 	return false
 }
 
-// ResolveNodeAlerts: bir sunucunun (hangi kurala bağlı olursa olsun) TÜM aktif alarmlarını çözer ve her
-// biri için "resolved" olayı yayınlar. Sunucu silinmeden ÖNCE çağrılır: silinince alarm satırları cascade
-// ile gider ve hangi alarmların açık olduğu artık öğrenilemez (bkz. ResolveRuleAlerts, aynı gerekçe).
-// Motorun o sunucuya ait bellek durumu (active/breachStart) da temizlenir.
+// ResolveNodeAlerts resolves all active alerts of a node and publishes "resolved" events. It must run
+// before the node is deleted: afterwards the cascade removes the rows and the open alerts cannot be found.
 func (e *Engine) ResolveNodeAlerts(ctx context.Context, nodeID string) ([]realtime.AlertEvent, error) {
 	e.mu.Lock()
 	events, err := e.queryResolvedSQL(ctx, resolvedByNodeSQL, nodeID)

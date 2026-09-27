@@ -1,15 +1,15 @@
 # deploy/secrets
 
-Bu klasör, `demo` profilindeki örnek agent'a (`docker compose --profile demo ...`) **salt okunur** olarak
-`/run/secrets` altında bağlanır. İçine koyduğunuz dosyalar **git'e girmez** (yalnızca bu README izlenir).
+This folder is mounted **read-only** at `/run/secrets` into the example agent of the `demo` profile
+(`docker compose --profile demo ...`). Files you put here are **not tracked by git** (only this README is).
 
-Örnek agent'ın API anahtarı: `demo-agent.key`. Anahtarı komuta yazmadan, panodan kaydedin
-(PowerShell, `deploy` klasöründe; önce arayüzde "Sunucu ekle" → "Kopyala"):
+The example agent's API key goes into `demo-agent.key`. Save it from the clipboard without typing it into a
+command (PowerShell, in the `deploy` folder, after "Sunucu ekle" → "Kopyala" in the UI):
 
 ```powershell
 Get-Clipboard | Set-Content -NoNewline secrets\demo-agent.key
 ```
 
-Neden tek dosya değil de klasör bağlanıyor: Docker Desktop, bağlanacak dosya yoksa host'ta onun yerine
-sessizce boş bir KLASÖR oluşturuyor (ve `create_host_path: false` bu ortamda dikkate alınmıyor). Klasör
-zaten var olduğu için burada bu tuzak oluşmaz; dosya yoksa agent açık bir hatayla durur.
+Why a folder and not a single file: when a bind-mounted file does not exist, Docker Desktop silently creates
+an empty directory in its place (and ignores `create_host_path: false`). The folder always exists, so that
+trap cannot happen here; without the file the agent stops with a clear error.

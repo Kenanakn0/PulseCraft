@@ -1,25 +1,23 @@
-# PulseCraft web: React derlemesi (Node) -> statik dosyaları sunan nginx.
+# PulseCraft web: React build (Node) -> static files served by nginx.
 #
-# ÖNEMLİ: build context REPO KÖKÜDÜR (deploy/nginx yapılandırmasını da imaja almak için):
-#   docker build -f web/Dockerfile .          (compose bunu kendisi yapar)
-# Context'e neyin gireceği web/Dockerfile.dockerignore'da (yalnızca web/ ve nginx yapılandırması).
+# The build context is the REPOSITORY ROOT (to include the deploy/nginx config):
+#   docker build -f web/Dockerfile .          (compose does this itself)
+# web/Dockerfile.dockerignore limits the context to web/ and the nginx config.
 
-# --- 1) Derleme aşaması: yalnızca derleme için gereken Node burada kalır, çalışma imajına girmez ---
-# (C#'ta multi-stage: SDK imajında `dotnet publish`, sonra yalnızca çıktıyı runtime imajına kopyalamak.)
+# ---- Build stage: Node stays here and never reaches the runtime image ----
 FROM node:24-alpine AS build
 WORKDIR /app/web
 
-# Önce yalnızca bağımlılık dosyaları: kaynak kodu değişince `npm ci` katmanı önbellekten gelir.
+# Dependency files first, so `npm ci` stays cached when only source files change.
 COPY web/package.json web/package-lock.json ./
-# ci: package-lock.json'a birebir uyar (install gibi kilit dosyasını değiştirmez); betikler kapalı
-# (bağımlılıkların kurulum betikleri çalışmasın; Playwright tarayıcı indirmesi de burada gereksiz).
+# Install scripts are disabled: no dependency install hooks, and no Playwright browser download.
 RUN npm ci --ignore-scripts
 
 COPY web/ ./
-# tsc (tip denetimi) + vite build. Lint ve testler CI'da/yerelde çalışır; imaj derlemesini yavaşlatmaz.
+# Type check + vite build. Lint and tests run in CI, not in the image build.
 RUN npm run build
 
-# --- 2) Çalışma aşaması: yalnızca nginx + statik dosyalar (Node YOK) ---
+# ---- Runtime stage: nginx and the static files only ----
 FROM nginxinc/nginx-unprivileged:stable-alpine
 COPY deploy/nginx/conf.d/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html

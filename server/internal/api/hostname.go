@@ -7,17 +7,13 @@ import (
 	"unicode/utf8"
 )
 
-// maxHostnameBytes: DNS'in izin verdiği en uzun tam alan adı uzunluğu.
+// maxHostnameBytes is the longest fully qualified DNS name.
 const maxHostnameBytes = 253
 
-// normalizeHostname: agent'ın isteğe bağlı gönderdiği hostname'i temizler ve doğrular.
-//
-//   - Baş/sondaki boşluklar kırpılır; boş kalırsa ("", nil) döner ("değer yok").
-//   - En fazla 253 bayt, geçerli UTF-8 olmalı, kontrol karakteri (satır sonu, sekme, NUL…)
-//     içermemeli. Değer DB'ye yazılıp arayüzde gösterildiği için bilinçli olarak sıkıdır.
-//
-// Geçersizse hata döner; çağıran, ölçümleri reddetmeden hostname'i yok sayar
-// (bozuk bir ayar metrik akışını durdurmasın).
+// normalizeHostname validates the optional hostname sent by the agent: trimmed (empty means no value),
+// at most 253 bytes, valid UTF-8 and no control characters, because it is stored and shown in the UI.
+// The caller ignores an invalid hostname instead of rejecting the samples, so a bad setting cannot stop
+// the metric stream.
 func normalizeHostname(raw string) (string, error) {
 	h := strings.TrimSpace(raw)
 	if h == "" {

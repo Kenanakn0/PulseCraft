@@ -14,7 +14,9 @@ export function formatTrigger(alert: Pick<AlertRow, 'metric' | 'trigger_value' |
   return `${metricLabel(alert.metric)} ${formatPercent(alert.trigger_value)} (eşik ${alert.operator} ${thresholdFormat.format(alert.threshold)} %)`
 }
 
-/** Mutlak, okunur zaman ("24.09.2026 21:14:05"). "3 dk önce" DEĞİL: göreli zaman tarayıcı saatine bağlı olurdu. */
+/**
+ * Absolute timestamp ("24.09.2026 21:14:05"). Not "3 min ago": relative time would depend on the browser clock.
+ */
 export function formatDateTime(iso: string, timeZone?: string): string {
   return new Intl.DateTimeFormat('tr-TR', {
     day: '2-digit',
@@ -27,7 +29,7 @@ export function formatDateTime(iso: string, timeZone?: string): string {
   }).format(new Date(iso))
 }
 
-/** İki SUNUCU zaman damgası arasındaki süre: "45 sn", "12 dk 5 sn", "2 sa 3 dk", "1 gün 4 sa". */
+/** Duration between two SERVER timestamps: "45 sn", "12 dk 5 sn", "2 sa 3 dk", "1 gün 4 sa". */
 export function formatDuration(fromIso: string, toIso: string): string {
   const seconds = Math.max(0, Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 1000))
   if (seconds < 60) return `${seconds} sn`

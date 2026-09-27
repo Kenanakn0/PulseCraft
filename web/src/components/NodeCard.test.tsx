@@ -5,7 +5,7 @@ import type { NodeSummary } from '../api/types'
 import { makeNode } from '../test/fixtures'
 import { NodeCard } from './NodeCard'
 
-// Kart bir <Link> içerir; Link yalnızca bir Router'ın içinde çalışır.
+// The card contains a <Link>, which needs a Router.
 const withRouter = (node: NodeSummary) => (
   <MemoryRouter>
     <NodeCard node={node} />
@@ -22,9 +22,9 @@ describe('NodeCard', () => {
     expect(within(card).getByRole('heading', { name: 'web-01' })).toBeInTheDocument()
     expect(within(card).getByText('Çevrimiçi')).toBeInTheDocument()
     expect(within(card).getByText('web-01.example.test · linux')).toBeInTheDocument()
-    expect(within(card).getByText('42,5 %')).toBeInTheDocument() // CPU
-    expect(within(card).getByText('61,0 %')).toBeInTheDocument() // RAM
-    expect(within(card).getByText('70,3 %')).toBeInTheDocument() // Disk (70.25 → yuvarlama)
+    expect(within(card).getByText('42,5 %')).toBeInTheDocument()
+    expect(within(card).getByText('61,0 %')).toBeInTheDocument()
+    expect(within(card).getByText('70,3 %')).toBeInTheDocument() // Disk (70.25 → rounded)
     expect(within(card).getByText('Son görülme: az önce')).toBeInTheDocument()
   })
 

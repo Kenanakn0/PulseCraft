@@ -7,7 +7,7 @@ import { jsonResponse, meResponse, stubFetch, testUser, textResponse } from '../
 import { AuthProvider } from './AuthProvider'
 import { useAuth } from './useAuth'
 
-// Provider'ın state'ini ekrana döken ve işlemleri düğmelere bağlayan minik test bileşeni.
+// A tiny component that renders the provider's state and wires its actions to buttons.
 function Probe() {
   const { status, user, sessionExpired, login, logout } = useAuth()
   return (
@@ -67,7 +67,7 @@ describe('AuthProvider', () => {
     renderProbe()
 
     await expectStatus('authenticated')
-    // İlk effect çalıştırması iptal edilir, ikincisi tamamlanır: en fazla iki istek gider.
+    // The first effect run is aborted and the second completes: at most two requests.
     expect(calls.filter((c) => c.path === '/api/v1/auth/me').length).toBeLessThanOrEqual(2)
   })
 

@@ -1,12 +1,11 @@
-// Sunucuyla konuşan tek kapı. Tüm istekler buradan geçer; böylece hata biçimi,
-// çerez gönderimi ve "oturum bitti" (401) davranışı tek yerde tanımlıdır.
-// (C#'ta HttpClient'ı sarmalayan bir DelegatingHandler / typed client gibi düşünülebilir.)
+// The single gateway to the server: error shape, cookie handling and the "session ended" (401) behaviour
+// are defined in one place.
 
-/** Sunucu 2xx dışında yanıt verdiğinde ya da hiç yanıt gelmediğinde fırlatılır. */
+/** Thrown for non-2xx responses and when no response arrives at all. */
 export class ApiError extends Error {
-  /** HTTP durum kodu. 0 = sunucuya hiç ulaşılamadı (ağ hatası). */
+  /** HTTP status. 0 = the server could not be reached (network error). */
   readonly status: number
-  /** 429'da sunucunun Retry-After başlığı (saniye). */
+  /** The server's Retry-After (seconds) on 429. */
   readonly retryAfterSeconds: number | undefined
 
   constructor(status: number, message: string, retryAfterSeconds?: number) {
@@ -17,11 +16,9 @@ export class ApiError extends Error {
   }
 }
 
-// --- "Oturum bitti" bildirimi -------------------------------------------------
-// Herhangi bir istek 401 alırsa (ör. token süresi doldu) dinleyenlere haber verilir.
-// AuthProvider dinleyip kullanıcıyı giriş ekranına döndürür. Bu, C#'taki bir event'e
-// (`event Action Unauthorized`) benzer; onUnauthorized abone olur ve abonelikten
-// çıkmak için bir fonksiyon döndürür (React'te effect'in "cleanup"ı olarak kullanılır).
+// "Session ended" notification: any request that gets 401 (e.g. the token expired) notifies the listeners.
+// AuthProvider listens and returns the user to the login page. onUnauthorized returns an unsubscribe
+// function that doubles as an effect cleanup.
 type Listener = () => void
 const unauthorizedListeners = new Set<Listener>()
 
@@ -32,31 +29,29 @@ export function onUnauthorized(listener: Listener): () => void {
   }
 }
 
-/** Oturumun bittiğini dinleyenlere bildirir (HTTP 401 ya da WebSocket kapanış kodu 4401 gibi). */
+/** Notifies listeners that the session ended (HTTP 401 or WebSocket close code 4401). */
 export function notifyUnauthorized(): void {
   for (const listener of unauthorizedListeners) listener()
 }
 
 interface RequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
-  /** JSON'a çevrilip gövdeye konur. */
   body?: unknown
-  /** İstek iptal edilebilsin diye (bileşen ekrandan kalkarsa yarım kalan istek bırakılır). */
+  /** Lets the request be cancelled when the component unmounts. */
   signal?: AbortSignal
   /**
-   * true ise 401, global "oturum bitti" bildirimini TETİKLEMEZ. Giriş isteğinde yanlış
-   * parola zaten 401'dir ve bu bir "oturum bitti" durumu değildir.
+   * When true, a 401 does NOT trigger the global "session ended" notice: a wrong password at login is a
+   * 401 too, but not an ended session.
    */
   silent401?: boolean
 }
 
 /**
- * JSON konuşan istek. Başarısızlıkta ApiError fırlatır; iptal edilen istekte (AbortError)
- * orijinal hatayı olduğu gibi yeniden fırlatır (iptal bir hata sayılmaz).
+ * JSON request. Throws ApiError on failure; a cancelled request rethrows the original AbortError
+ * (cancelling is not an error).
  *
- * DİKKAT: `T` yalnızca DERLEME zamanında var olan bir iddiadır. C#'ta JSON, çalışma
- * zamanında belirli bir sınıfa deserialize edilir ve uyumsuzsa hata alırsın; TypeScript
- * tipleri ise çalışma zamanında silinir, sunucu farklı bir şey döndürürse kimse uyarmaz.
+ * Note: `T` is a compile-time assertion only. Types are erased at runtime, so nothing checks that the
+ * server actually returned this shape.
  */
 export async function apiFetch<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, signal, silent401 = false } = options
@@ -70,7 +65,7 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
-      // Oturum cookie'si (httpOnly) aynı origin'e otomatik gönderilir; JS token'ı hiç görmez.
+      // The httpOnly session cookie is sent automatically to the same origin; JavaScript never sees the token.
       credentials: 'same-origin',
       signal,
     })
@@ -98,7 +93,6 @@ export async function apiFetch<T>(path: string, options: RequestOptions = {}): P
   return (await response.json()) as T
 }
 
-/** Bir hatanın "istek iptal edildi" olup olmadığını söyler. */
 export function isAbortError(err: unknown): boolean {
   return err instanceof DOMException && err.name === 'AbortError'
 }

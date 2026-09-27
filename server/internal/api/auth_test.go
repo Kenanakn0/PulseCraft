@@ -17,7 +17,6 @@ import (
 
 const apiTestSecret = "api-testi-icin-yeterince-uzun-gizli-anahtar-123456"
 
-// newTestAPI: DB'siz bir API kurar; yalnızca kimlik doğrulama parçalarını içerir.
 func newTestAPI(t *testing.T, trustedProxies string) (*API, http.Handler) {
 	t.Helper()
 
@@ -40,9 +39,8 @@ func newTestAPI(t *testing.T, trustedProxies string) (*API, http.Handler) {
 	return a, r
 }
 
-// login: geçersiz JSON gövdesiyle login'e istek atar. Gövde DB'ye ulaşmadan
-// 400 ile reddedilir; ama rate limit gövde doğrulamasından ÖNCE çalıştığı ve
-// her denemeyi saydığı için limit davranışı DB olmadan test edilebilir.
+// login sends an invalid JSON body. It is rejected with 400 before touching the database, but the rate
+// limit runs before body validation and counts every attempt, so the limit is testable without a DB.
 func login(h http.Handler, remoteAddr, xff string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader("json-degil"))
 	req.RemoteAddr = remoteAddr
@@ -72,18 +70,17 @@ func TestLogin_RateLimit_11thAttemptIs429(t *testing.T) {
 		t.Errorf("Retry-After = %q, 1-60 arası saniye bekleniyordu", rec.Header().Get("Retry-After"))
 	}
 
-	// Başka bir IP etkilenmez.
 	if rec := login(h, "198.51.100.1:5000", ""); rec.Code != http.StatusBadRequest {
 		t.Errorf("başka IP'nin kodu = %d, beklenen 400", rec.Code)
 	}
 }
 
 func TestLogin_RateLimit_SpoofedXFFCannotBypass(t *testing.T) {
-	// Güvenilir proxy YOK: X-Forwarded-For tamamen yok sayılmalı.
+	// No trusted proxy: X-Forwarded-For must be ignored entirely.
 	_, h := newTestAPI(t, "")
 
 	for i := 1; i <= 10; i++ {
-		login(h, "203.0.113.9:5000", fmt.Sprintf("10.0.0.%d", i)) // her denemede farklı sahte IP
+		login(h, "203.0.113.9:5000", fmt.Sprintf("10.0.0.%d", i)) // a different forged IP on every attempt
 	}
 	rec := login(h, "203.0.113.9:5000", "10.0.0.200")
 	if rec.Code != http.StatusTooManyRequests {
@@ -95,8 +92,8 @@ func TestLogin_RateLimit_TrustedProxy(t *testing.T) {
 	_, h := newTestAPI(t, "10.0.0.0/8")
 	proxy := "10.1.1.1:4000"
 
-	// İstemci A, proxy arkasından 10 deneme yapar; her seferinde zincirin
-	// SOL tarafına farklı sahte adresler ekleyerek limiti atlatmaya çalışır.
+	// Client A tries to evade the limit from behind the proxy by prepending a different forged address on
+	// every attempt.
 	for i := 1; i <= 10; i++ {
 		login(h, proxy, fmt.Sprintf("1.1.1.%d, 198.51.100.7", i))
 	}
@@ -104,13 +101,13 @@ func TestLogin_RateLimit_TrustedProxy(t *testing.T) {
 		t.Errorf("zincirin soluna sahte adres eklemek limiti atlattı: kod = %d", rec.Code)
 	}
 
-	// Aynı proxy arkasındaki FARKLI bir istemci kendi kovasını kullanır.
+	// A different client behind the same proxy has its own bucket.
 	if rec := login(h, proxy, "198.51.100.8"); rec.Code != http.StatusBadRequest {
 		t.Errorf("başka istemci etkilendi: kod = %d, beklenen 400", rec.Code)
 	}
 
-	// Güvenilmeyen bir eş, proxy'ymiş gibi başlık göndererek başkasının
-	// kovasını tüketemez ve kendi kovasından kaçamaz: RemoteAddr esas alınır.
+	// An untrusted peer pretending to be a proxy can neither drain someone else's bucket nor escape its
+	// own: RemoteAddr decides.
 	for i := 1; i <= 10; i++ {
 		login(h, "203.0.113.9:5000", "198.51.100.8")
 	}
@@ -122,14 +119,13 @@ func TestLogin_RateLimit_TrustedProxy(t *testing.T) {
 func TestLogin_RateLimit_IPv6AddressRotationWithinPrefix(t *testing.T) {
 	_, h := newTestAPI(t, "")
 
-	// Aynı /64 içinden her denemede farklı adres: tek istemci sayılmalı.
+	// A different address from the same /64 on every attempt counts as one client.
 	for i := 1; i <= 10; i++ {
 		login(h, fmt.Sprintf("[2001:db8:1:2::%x]:5000", i), "")
 	}
 	if rec := login(h, "[2001:db8:1:2::ffff]:5000", ""); rec.Code != http.StatusTooManyRequests {
 		t.Errorf("IPv6 adres döndürme limiti atlattı: kod = %d", rec.Code)
 	}
-	// Farklı bir /64 ayrı sayılır.
 	if rec := login(h, "[2001:db8:1:3::1]:5000", ""); rec.Code != http.StatusBadRequest {
 		t.Errorf("farklı /64 etkilendi: kod = %d", rec.Code)
 	}
@@ -140,13 +136,13 @@ func TestLogin_ValidationErrors(t *testing.T) {
 
 	tests := []struct{ name, body string }{
 		{"e-posta boş", `{"email":"","password":"x"}`},
-		{"parola boş", `{"email":"a@b.io","password":""}`},
+		{"parola boş", `{"email":"a@example.test","password":""}`},
 		{"alanlar yok", `{}`},
 	}
 	for i, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(tt.body))
-			req.RemoteAddr = fmt.Sprintf("192.0.2.%d:1", i+1) // testler birbirinin limitini tüketmesin
+			req.RemoteAddr = fmt.Sprintf("192.0.2.%d:1", i+1) // keep tests from sharing a limit
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, req)
 			if rec.Code != http.StatusBadRequest {
@@ -240,7 +236,6 @@ func TestMe_RequiresValidSession(t *testing.T) {
 		t.Error("kimlik yanıtları no-store olmalı")
 	}
 
-	// Bozuk / farklı anahtarla imzalı / süresi dolmuş token'lar 401 + cookie silinir.
 	other := auth.NewTokenService("baska-bir-gizli-anahtar-en-az-32-karakter-uzun", time.Hour)
 	forged, _, _ := other.Issue(auth.User{ID: 7, Email: "x@y.z", DisplayName: "X"})
 	expired, _, _ := auth.NewTokenService(apiTestSecret, -time.Hour).Issue(auth.User{ID: 7, Email: "x@y.z", DisplayName: "X"})
@@ -274,13 +269,12 @@ func TestLogout_RevokesOldCookie(t *testing.T) {
 		t.Error("logout cookie'yi silmeli")
 	}
 
-	// curl ile ESKİ cookie'yi tekrar göndermek: imza ve süre hâlâ geçerli,
-	// ama jti denylist'te olduğu için 401 dönmeli.
+	// Replaying the old cookie (e.g. with curl): signature and expiry are still valid, but the jti is revoked.
 	if rec := getMe(h, tok); rec.Code != http.StatusUnauthorized {
 		t.Errorf("logout sonrası eski cookie: kod = %d, beklenen 401", rec.Code)
 	}
 
-	// Aynı kullanıcının YENİ girişi (yeni jti) etkilenmez.
+	// A new login of the same user (new jti) is unaffected.
 	fresh, _, _ := a.Tokens.Issue(auth.User{ID: 7, Email: "admin@pulsecraft.local", DisplayName: "Admin"})
 	if rec := getMe(h, fresh); rec.Code != http.StatusOK {
 		t.Errorf("yeni oturum: kod = %d, beklenen 200", rec.Code)

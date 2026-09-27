@@ -2,7 +2,7 @@ import { createContext } from 'react'
 import type { User } from '../api/types'
 
 export type AuthStatus =
-  /** Sayfa yeni açıldı, "oturum var mı?" sorusu (GET /auth/me) henüz yanıtlanmadı. */
+  /** The page just loaded and GET /auth/me has not answered yet. */
   | 'loading'
   | 'authenticated'
   | 'unauthenticated'
@@ -10,17 +10,15 @@ export type AuthStatus =
 export interface AuthState {
   status: AuthStatus
   user: User | null
-  /** Oturum, kullanıcı çıkış yapmadan (ör. süre dolarak) bittiyse true: girişte açıklama gösterilir. */
+  /** True if the session ended without a logout (e.g. it expired): the login page explains why. */
   sessionExpired: boolean
 }
 
 export interface AuthContextValue extends AuthState {
-  /** Başarısızlıkta ApiError fırlatır (401 yanlış parola, 429 çok fazla deneme, 0 ağ hatası…). */
+  /** Throws ApiError on failure (401 wrong password, 429 too many attempts, 0 network error …). */
   login: (email: string, password: string) => Promise<void>
   logout: () => Promise<void>
 }
 
-// Context, ağaçtaki herhangi bir bileşenin "props geçmeden" ortak bir değere erişmesini sağlar.
-// C# karşılığı: DI'daki scoped bir servis (Blazor'da CascadingValue). Varsayılan null: provider
-// olmadan kullanılırsa useAuth bunu yakalayıp anlaşılır bir hata verir.
+// Default null: useAuth outside the provider throws a clear error.
 export const AuthContext = createContext<AuthContextValue | null>(null)

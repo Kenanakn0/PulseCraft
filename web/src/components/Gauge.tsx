@@ -8,11 +8,10 @@ import { formatPercent } from '../nodes/format'
 
 interface GaugeProps {
   label: string
-  /** Yüzde (0-100). Değer yoksa (ölçüm yok) `null`: gösterge boş ve "—" gösterilir. */
+  /** Percentage (0-100); `null` without a sample: the gauge is empty and shows "—". */
   value: number | null
 }
 
-/** Yarım daire gösterge: CPU/RAM/Disk gibi bir yüzdeyi tek bakışta gösterir. */
 export function Gauge({ label, value }: GaugeProps) {
   const theme = useChartTheme()
   const data = useMemo(() => buildGaugeData(value ?? 0, theme), [value, theme])
@@ -24,7 +23,7 @@ export function Gauge({ label, value }: GaugeProps) {
     <figure className={`gauge gauge-${level}`} data-testid={`gauge-${label}`}>
       <div className="gauge-canvas" role="img" aria-label={`${label}: ${text}`}>
         <Doughnut data={data} options={gaugeOptions} />
-        {/* Ortadaki değer canvas'ın DIŞINDA, sıradan HTML: metin keskin çizilir ve ekran okuyucuya açıktır. */}
+        {/* The value sits outside the canvas as plain HTML: crisp text, and readable by screen readers. */}
         <span className="gauge-value">{text}</span>
       </div>
       <figcaption>{label}</figcaption>

@@ -20,7 +20,7 @@ func TestClientIP(t *testing.T) {
 		name    string
 		trusted string
 		remote  string
-		xff     []string // her eleman ayrı bir X-Forwarded-For başlığı
+		xff     []string // each element is a separate X-Forwarded-For header
 		want    string
 	}{
 		{"güvenilir proxy yok, başlık yok sayılır", "", "203.0.113.9:4000", []string{"1.2.3.4"}, "203.0.113.9"},

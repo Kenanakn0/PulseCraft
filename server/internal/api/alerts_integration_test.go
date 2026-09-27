@@ -20,13 +20,13 @@ import (
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
-// Bu dosyadaki testler GERÇEK bir PostgreSQL/TimescaleDB ve Redis ister (alarm SQL'leri ve yayınlanan
-// olaylar sahte bir nesneyle doğrulanamaz). Ortam değişkenleri yoksa atlanırlar; normal `go test ./...`
-// etkilenmez. Şemanın yüklü olduğu, SAHTE verili bir prova veritabanına karşı çalıştırın:
+// These tests need a real PostgreSQL/TimescaleDB and Redis (alert SQL and published events cannot be
+// faked meaningfully). Without the variables below they are skipped. Run them only against a throw-away
+// database:
 //
 //	PULSECRAFT_TEST_DATABASE_URL=postgres://...  PULSECRAFT_TEST_REDIS_URL=redis://...  go test ./internal/api -run Integration -v
 //
-// Testler kendi node/kural/kullanıcılarını oluşturur ve sonunda siler.
+// Each test creates and removes its own nodes, rules and users.
 
 type integration struct {
 	t      *testing.T
@@ -61,7 +61,7 @@ func newIntegration(t *testing.T) *integration {
 	t.Cleanup(func() { _ = rdb.Close() })
 
 	sub := rdb.Subscribe(ctx, realtime.ChannelAlerts)
-	if _, err := sub.Receive(ctx); err != nil { // abonelik gerçekten kuruldu
+	if _, err := sub.Receive(ctx); err != nil { // make sure the subscription is active
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = sub.Close() })
@@ -177,7 +177,7 @@ func (c *integration) sampleAt(nodeID string, cpu float64, at time.Time) {
 	c.api.Engine.Evaluate(context.Background(), nodeID, []alerting.Sample{{Time: at, CPUPercent: cpu}})
 }
 
-// next: bir sonraki olayı bekler; pred'i sağlamayan olaylar (ör. önceki testlerden gecikmiş) atlanır.
+// next waits for the next event matching pred; others (e.g. late events of earlier tests) are skipped.
 func (c *integration) next(pred func(map[string]any) bool) map[string]any {
 	c.t.Helper()
 	timeout := time.After(5 * time.Second)
@@ -242,7 +242,6 @@ func TestIntegration_AlertEventsCarryFullRowAndRESTHasRuleFields(t *testing.T) {
 	nodeID := c.newNode("it-node-yasam-dongusu")
 	rule := c.newRule(rulePayload{Name: "it-yuksek-cpu", Metric: "cpu_percent", Operator: ">", Threshold: 1, Severity: "critical"})
 
-	// açılış
 	c.sample(nodeID, 50)
 	opened := c.next(forNode(nodeID, "opened"))
 	if opened["node_name"] != "it-node-yasam-dongusu" || opened["operator"] != ">" || opened["severity"] != "critical" ||
@@ -256,7 +255,6 @@ func TestIntegration_AlertEventsCarryFullRowAndRESTHasRuleFields(t *testing.T) {
 		t.Errorf("opened olayında acknowledged_by olmamalı: %v", opened)
 	}
 
-	// REST: S1 alanları
 	var list []Alert
 	c.mustJSON(c.request(http.MethodGet, "/api/v1/alerts?status=open", nil), http.StatusOK, &list)
 	var found *Alert
@@ -272,7 +270,6 @@ func TestIntegration_AlertEventsCarryFullRowAndRESTHasRuleFields(t *testing.T) {
 		t.Errorf("REST alarm satırında kural alanları eksik: %+v", *found)
 	}
 
-	// incelemeye alma
 	var acked realtime.AlertEvent
 	c.mustJSON(c.request(http.MethodPost, "/api/v1/alerts/"+strconv.FormatInt(found.ID, 10)+"/ack", nil), http.StatusOK, &acked)
 	ev := c.next(forNode(nodeID, "acknowledged"))
@@ -284,13 +281,11 @@ func TestIntegration_AlertEventsCarryFullRowAndRESTHasRuleFields(t *testing.T) {
 		t.Errorf("ack yanıtı da zengin olmalı: %+v", acked)
 	}
 	if acked.Type != "alert" || acked.Event != "acknowledged" {
-		// Web tarafı ack yanıtını parseEvent'ten geçirebilmek için "type" alanına bakar; boş gelirse
-		// (PublishAlert yalnızca KENDİ kopyasında doldurur, ev değer olarak geçer) istemci normalize eder,
-		// ama sunucu doğru göndermeli.
+		// The web client relies on the "type" field of the ack response.
 		t.Errorf("ack yanıtında type=\"alert\" ve event=\"acknowledged\" olmalı: %+v", acked)
 	}
 
-	// çözülme: ack bilgisi korunur
+	// resolving keeps the acknowledgement
 	c.sample(nodeID, 0.5)
 	resolved := c.next(forNode(nodeID, "resolved"))
 	if resolved["status"] != "resolved" || resolved["resolved_at"] == nil || resolved["acknowledged_at"] == nil ||
@@ -318,15 +313,14 @@ func TestIntegration_DisablingRuleResolvesActiveAlertsAndReenablingWorks(t *test
 		t.Errorf("DB'de alarm resolved olmalı: %v", got)
 	}
 
-	// Kapalı kural yeni alarm açmaz.
 	c.sample(nodeID, 60)
 	c.noEvent(forNode(nodeID, "opened"))
 
-	// İkinci kez devre dışı bırakmak yeni olay üretmez (idempotent).
+	// Disabling twice produces no new event (idempotent).
 	c.updateRule(rule, func(p *rulePayload) { off := false; p.Enabled = &off })
 	c.noEvent(forNode(nodeID, "resolved"))
 
-	// Yeniden etkinleştirince (motorun bellek durumu temizlendiği için) yeni alarm açılır.
+	// Re-enabling opens a new alert because the engine state was cleared.
 	c.updateRule(rule, func(p *rulePayload) { on := true; p.Enabled = &on })
 	c.sample(nodeID, 70)
 	c.next(forNode(nodeID, "opened"))
@@ -346,7 +340,7 @@ func TestIntegration_NarrowingRuleScopeResolvesOutOfScopeAlertsOnly(t *testing.T
 	c.sample(nodeB, 50)
 	c.next(forNode(nodeB, "opened"))
 
-	c.updateRule(rule, func(p *rulePayload) { p.NodeID = &nodeA }) // yalnızca A
+	c.updateRule(rule, func(p *rulePayload) { p.NodeID = &nodeA }) // only A
 
 	c.next(forNode(nodeB, "resolved"))
 	c.noEvent(forNode(nodeA, "resolved"))
@@ -377,14 +371,12 @@ func TestIntegration_DeletingRuleResolvesThenAnnouncesDeletion(t *testing.T) {
 		t.Errorf("alarm satırları cascade ile silinmeliydi: %v", got)
 	}
 
-	// Olmayan kural: 404 ve olay yok.
 	c.mustJSON(c.request(http.MethodDelete, "/api/v1/alert-rules/"+strconv.FormatInt(rule.ID, 10), nil), http.StatusNotFound, nil)
 	c.noEvent(func(ev map[string]any) bool { return ev["type"] == "rule" })
 }
 
-// Süreli kuralda (duration_seconds > 0) eşik aşımı BAŞLANGICI bellekte tutulur. Kural bir sunucuya
-// daraltılınca diğer sunucuların başlangıç kaydı silinmeli; kapsam sonradan genişleyince eski
-// başlangıç zamanı süreye sayılıp alarm haksız yere hemen açılmamalı.
+// Narrowing a rule must forget other nodes' breach starts; otherwise widening it again would count the
+// stale start and open an alert immediately.
 func TestIntegration_NarrowingScopeForgetsBreachStartOfOtherNodes(t *testing.T) {
 	c := newIntegration(t)
 	nodeA := c.newNode("it-node-sure-a")
@@ -392,16 +384,15 @@ func TestIntegration_NarrowingScopeForgetsBreachStartOfOtherNodes(t *testing.T) 
 	rule := c.newRule(rulePayload{Name: "it-kural-sure", Metric: "cpu_percent", Operator: ">", Threshold: 1, Duration: 300, Severity: "warning"})
 
 	t0 := time.Now()
-	c.sampleAt(nodeB, 50, t0) // B'de eşik aşımı BAŞLADI (süre dolmadı, alarm yok)
+	c.sampleAt(nodeB, 50, t0) // B starts breaching (duration not reached yet)
 
-	rule = c.updateRule(rule, func(p *rulePayload) { p.NodeID = &nodeA }) // yalnızca A: B unutulmalı
-	rule = c.updateRule(rule, func(p *rulePayload) { p.NodeID = nil })    // yeniden tüm sunucular
+	rule = c.updateRule(rule, func(p *rulePayload) { p.NodeID = &nodeA }) // only A: B must be forgotten
+	rule = c.updateRule(rule, func(p *rulePayload) { p.NodeID = nil })    // all servers again
 
-	// B'nin eski başlangıcı (t0) hâlâ sayılsaydı, t0+301sn'de alarm hemen açılırdı.
+	// If B's old start (t0) still counted, the alert would open at t0+301s.
 	c.sampleAt(nodeB, 50, t0.Add(301*time.Second))
 	c.noEvent(forNode(nodeB, "opened"))
 
-	// Yeni başlangıçtan 300 sn sonra ise gerçekten açılır.
 	c.sampleAt(nodeB, 50, t0.Add(301*time.Second+300*time.Second))
 	c.next(forNode(nodeB, "opened"))
 	_ = rule

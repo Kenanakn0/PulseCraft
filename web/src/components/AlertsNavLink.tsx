@@ -2,7 +2,7 @@ import { NavLink } from 'react-router'
 import { countByStatus } from '../alerts/state'
 import { useAlerts } from '../alerts/useAlerts'
 
-/** Üst çubuktaki "Alarmlar" bağlantısı; açık (henüz kimsenin incelemeye almadığı) alarm sayısını rozet olarak gösterir. */
+/** The "Alarmlar" nav link with a badge for open (not yet acknowledged) alerts. */
 export function AlertsNavLink() {
   const { state } = useAlerts()
   const open = state.status === 'ready' ? countByStatus(state.alerts).open : 0

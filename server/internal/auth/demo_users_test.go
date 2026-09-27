@@ -29,13 +29,13 @@ func TestParseDemoUsers_Valid(t *testing.T) {
 		},
 		{
 			"görünen ad ':' içerebilir (ilk iki ':'den bölünür)",
-			"ops@x.io:parola12345:Gece: Vardiyası",
-			[]DemoUser{{"ops@x.io", "parola12345", "Gece: Vardiyası"}},
+			"ops@example.test:parola12345:Gece: Vardiyası",
+			[]DemoUser{{"ops@example.test", "parola12345", "Gece: Vardiyası"}},
 		},
 		{
 			"paroladaki boşluk olduğu gibi korunur",
-			"a@b.io: sifre 12345 :Ad",
-			[]DemoUser{{"a@b.io", " sifre 12345 ", "Ad"}},
+			"a@example.test: sifre 12345 :Ad",
+			[]DemoUser{{"a@example.test", " sifre 12345 ", "Ad"}},
 		},
 	}
 
@@ -57,24 +57,24 @@ func TestParseDemoUsers_Invalid(t *testing.T) {
 		name string
 		raw  string
 	}{
-		{"parça eksik (sadece e-posta)", "admin@x.io"},
-		{"parça eksik (ad yok)", "admin@x.io:parola12345"},
+		{"parça eksik (sadece e-posta)", "admin@example.test"},
+		{"parça eksik (ad yok)", "admin@example.test:parola12345"},
 		{"e-posta @ içermiyor", "admin:parola12345:Admin"},
-		{"e-posta @ ile başlıyor", "@x.io:parola12345:Admin"},
+		{"e-posta @ ile başlıyor", "@example.test:parola12345:Admin"},
 		{"e-posta @ ile bitiyor", "admin@:parola12345:Admin"},
-		{"e-postada boşluk", "ad min@x.io:parola12345:Admin"},
-		{"parola çok kısa", "admin@x.io:kisa:Admin"},
-		{"parola bcrypt sınırından uzun", "admin@x.io:" + strings.Repeat("p", 73) + ":Admin"},
-		{"görünen ad boş", "admin@x.io:parola12345: "},
-		{"aynı e-posta (büyük/küçük harf farkıyla) iki kez", "a@x.io:parola12345:A;A@X.io:parola67890:B"},
-		{"örnek dosyadaki yer tutucu parola", "admin@x.io:degistir_beni_123:Admin"},
-		{"yer tutucu, büyük harfle", "admin@x.io:DEGISTIR_beni_456:Admin"},
-		{"İngilizce yer tutucu", "admin@x.io:changeme-please:Admin"},
-		{"yaygın parola", "admin@x.io:password123:Admin"},
-		{"yaygın parola, büyük/küçük harf farkıyla", "admin@x.io:Demo1234:Admin"},
-		{"parola e-postanın kullanıcı kısmıyla aynı", "operator@x.io:operator:Admin"},
-		{"parola e-postanın kendisiyle aynı", "admin@x.io:admin@x.io:Admin"},
-		{"tek karakterin tekrarı", "admin@x.io:aaaaaaaaaa:Admin"},
+		{"e-postada boşluk", "ad min@example.test:parola12345:Admin"},
+		{"parola çok kısa", "admin@example.test:kisa:Admin"},
+		{"parola bcrypt sınırından uzun", "admin@example.test:" + strings.Repeat("p", 73) + ":Admin"},
+		{"görünen ad boş", "admin@example.test:parola12345: "},
+		{"aynı e-posta (büyük/küçük harf farkıyla) iki kez", "a@example.test:parola12345:A;A@EXAMPLE.TEST:parola67890:B"},
+		{"örnek dosyadaki yer tutucu parola", "admin@example.test:degistir_beni_123:Admin"},
+		{"yer tutucu, büyük harfle", "admin@example.test:DEGISTIR_beni_456:Admin"},
+		{"İngilizce yer tutucu", "admin@example.test:changeme-please:Admin"},
+		{"yaygın parola", "admin@example.test:password123:Admin"},
+		{"yaygın parola, büyük/küçük harf farkıyla", "admin@example.test:Demo1234:Admin"},
+		{"parola e-postanın kullanıcı kısmıyla aynı", "operator@example.test:operator:Admin"},
+		{"parola e-postanın kendisiyle aynı", "admin@example.test:admin@example.test:Admin"},
+		{"tek karakterin tekrarı", "admin@example.test:aaaaaaaaaa:Admin"},
 	}
 
 	for _, tt := range tests {
@@ -83,7 +83,7 @@ func TestParseDemoUsers_Invalid(t *testing.T) {
 			if err == nil {
 				t.Fatalf("hata beklenirken sonuç döndü: %#v", got)
 			}
-			// Hata mesajı asla parolayı sızdırmamalı.
+			// Errors must never leak the password.
 			for _, part := range strings.Split(tt.raw, ":") {
 				if len(part) >= 8 && strings.Contains(err.Error(), part) {
 					t.Errorf("hata mesajı parolayı içeriyor: %q", err)
@@ -94,7 +94,7 @@ func TestParseDemoUsers_Invalid(t *testing.T) {
 }
 
 func TestParseDemoUsers_WeakPasswordErrorExplainsWithoutLeaking(t *testing.T) {
-	_, err := ParseDemoUsers("a@x.io:parola12345:A;b@x.io:degistir_beni_456:B")
+	_, err := ParseDemoUsers("a@example.test:parola12345:A;b@example.test:degistir_beni_456:B")
 	if err == nil {
 		t.Fatal("yer tutucu parola kabul edildi")
 	}
@@ -108,7 +108,7 @@ func TestParseDemoUsers_WeakPasswordErrorExplainsWithoutLeaking(t *testing.T) {
 }
 
 func TestParseDemoUsers_ErrorMentionsPosition(t *testing.T) {
-	_, err := ParseDemoUsers("a@x.io:parola12345:A;b@x.io:kisa:B")
+	_, err := ParseDemoUsers("a@example.test:parola12345:A;b@example.test:kisa:B")
 	if err == nil || !strings.Contains(err.Error(), "2. kayıt") {
 		t.Errorf("hata 2. kaydı göstermeli, gelen: %v", err)
 	}

@@ -24,10 +24,9 @@ var (
 	validSeverities = []string{"info", "warning", "critical"}
 )
 
-// ruleRequest: POST/PUT /api/v1/alert-rules gövdesi.
 type ruleRequest struct {
 	Name            string  `json:"name"`
-	NodeID          *string `json:"node_id"` // null = tüm sunucular
+	NodeID          *string `json:"node_id"` // null = all servers
 	Metric          string  `json:"metric"`
 	Operator        string  `json:"operator"`
 	Threshold       float64 `json:"threshold"`
@@ -36,7 +35,7 @@ type ruleRequest struct {
 	Enabled         *bool   `json:"enabled"`
 }
 
-// normalize: varsayılanları uygular ve alanları doğrular. Hata mesajı boşsa geçerli.
+// normalize applies defaults and validates; an empty message means valid.
 func (r *ruleRequest) normalize() string {
 	if r.Severity == "" {
 		r.Severity = "warning"
@@ -60,7 +59,6 @@ func (r *ruleRequest) normalize() string {
 	return ""
 }
 
-// AlertRule: kural yanıtı.
 type AlertRule struct {
 	ID              int64     `json:"id"`
 	Name            string    `json:"name"`
@@ -165,8 +163,8 @@ func (a *API) handleUpdateRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Önce motorun kural önbelleği yenilenir (devre dışı/kapsamı değişen kural artık değerlendirilmez,
-	// arada yeni alarm açılamaz), SONRA artık geçerli olmayan aktif alarmlar çözülür.
+	// Refresh the engine first, so the changed rule can no longer open alerts, then resolve the alerts
+	// that no longer apply.
 	a.refreshEngine(r.Context())
 	a.resolveStaleAlerts(r.Context(), rule)
 	writeJSON(w, http.StatusOK, rule)
@@ -179,8 +177,8 @@ func (a *API) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Silmeden ÖNCE aktif alarmlar çözülür ve "resolved" olayı yayınlanır: kural silinince alarm
-	// satırları cascade ile gider, sonradan hangi alarmların açık olduğunu öğrenmek mümkün olmazdı.
+	// Resolve before deleting: the cascade removes the alert rows, after which the open ones cannot be
+	// found to announce.
 	if _, err := a.Engine.ResolveRuleAlerts(r.Context(), id, nil); err != nil {
 		a.writeDBError(w, "kuralın alarmları çözülemedi", err)
 		return
@@ -197,12 +195,11 @@ func (a *API) handleDeleteRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	a.refreshEngine(r.Context())
-	// Alarm satırları (geçmiş dahil) cascade ile silindi: açık istemciler o kurala ait satırları atsın.
+	// The cascade removed the rule's alert history; tell clients to drop those rows.
 	a.Pub.PublishRuleDeleted(id)
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Alert: GET /api/v1/alerts yanıtındaki bir alarm.
 type Alert struct {
 	ID             int64      `json:"id"`
 	RuleID         int64      `json:"rule_id"`
@@ -217,11 +214,10 @@ type Alert struct {
 	TriggerValue   float64    `json:"trigger_value"`
 	TriggeredAt    time.Time  `json:"triggered_at"`
 	AcknowledgedAt *time.Time `json:"acknowledged_at"`
-	AcknowledgedBy *string    `json:"acknowledged_by"` // görünen ad; incelemeye alınmadıysa null
+	AcknowledgedBy *string    `json:"acknowledged_by"` // display name; null unless acknowledged
 	ResolvedAt     *time.Time `json:"resolved_at"`
 }
 
-// handleListAlerts: ?status=open|acknowledged|resolved ile filtrelenebilir.
 func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	status := r.URL.Query().Get("status")
 	if status != "" && !slices.Contains([]string{"open", "acknowledged", "resolved"}, status) {
@@ -264,11 +260,8 @@ func (a *API) handleListAlerts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, alerts)
 }
 
-// handleAckAlert: "İncelemeye aldım" — sadece 'open' bir alarm 'acknowledged'
-// olabilir. Güncelleme tek atomik UPDATE'tir; iki kişi aynı anda bassa
-// yalnızca biri satırı günceller, diğeri 409 alır. İncelemeye alan kullanıcı
-// (oturumdaki kullanıcı) acknowledged_by'a yazılır; yanıt ve WS olayı, o
-// kullanıcının görünen adını DB'den okuyarak taşır.
+// handleAckAlert is a single atomic UPDATE on status = 'open': if two users click at the same time, one
+// wins and the other gets 409. The response and the event carry the acknowledging user's display name.
 func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
@@ -297,9 +290,8 @@ func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 	).Scan(&ev.AlertID, &ev.RuleID, &ev.RuleName, &ev.Severity, &ev.Metric, &ev.Operator, &ev.Threshold,
 		&ev.NodeID, &ev.NodeName, &ev.Status, &ev.TriggerValue, &ev.TriggeredAt, &ev.AcknowledgedAt, &ev.AcknowledgedBy)
 
-	// 23503 (foreign key): oturumdaki kullanıcı bu arada silinmiş. Token hâlâ
-	// geçerli görünse de artık böyle bir kullanıcı yok; yeniden giriş istenir.
-	// (writeDBError'daki genel 23503 eşlemesi "node bulunamadı" der, burada yanlış olurdu.)
+	// 23503 here means the session's user was deleted meanwhile; the token still verifies but the user is
+	// gone. writeDBError's generic mapping ("no such node") would be wrong.
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" {
 		http.SetCookie(w, a.expiredSessionCookie())
@@ -325,28 +317,20 @@ func (a *API) handleAckAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Not: Pub.PublishAlert kendi İÇİNDEKİ kopyada Type'ı doldurur (ev DEĞER olarak geçer), bu yüzden
-	// REST yanıtı için burada da ayarlanır — aksi halde istemci "type" alanını boş görürdü.
+	// PublishAlert fills Type only in its own copy (ev is passed by value), so set it for the response too.
 	ev.Type = "alert"
 	ev.Event = "acknowledged"
 	a.Pub.PublishAlert(ev)
 	writeJSON(w, http.StatusOK, ev)
 }
 
-// resolveStaleAlerts: güncellenen kuralın artık geçerli olmayan aktif alarmlarını çözer.
-//   - Kural devre dışıysa: motor onu değerlendirmez, tüm aktif alarmları çözülür.
-//   - Kural tek bir sunucuya daraltıldıysa: o sunucu DIŞINDAKİ aktif alarmlar çözülür.
-//   - Kural tüm sunucular için etkinse: çözülecek bir şey yok (eşik/süre değişiklikleri sonraki
-//     örnekte motor tarafından zaten değerlendirilir).
-//
-// Hata olursa kural güncellemesi geri alınmaz (yalnızca loglanır): alarmlar bir sonraki
-// devre dışı bırakma/güncellemede yeniden denenir.
+// resolveStaleAlerts resolves alerts that no longer apply after a rule update: all of them if the rule
+// was disabled, those of other nodes if it was narrowed to one node. Errors are logged, not rolled
+// back; the next update retries.
 func (a *API) resolveStaleAlerts(ctx context.Context, rule AlertRule) {
 	switch {
 	case !rule.Enabled:
-		// tümü
 	case rule.NodeID != nil:
-		// yalnızca kapsam dışındakiler
 	default:
 		return
 	}
@@ -359,17 +343,14 @@ func (a *API) resolveStaleAlerts(ctx context.Context, rule AlertRule) {
 	}
 }
 
-// refreshEngine: kural değişince motorun bellek cache'ini hemen yeniler.
 func (a *API) refreshEngine(ctx context.Context) {
 	if err := a.Engine.Refresh(ctx); err != nil {
 		slog.Error("alarm motoru yenilenemedi", "err", err)
 	}
 }
 
-// writeDBError: geçersiz UUID (22P02) ve olmayan node'a referans (23503) gibi
-// istemci kaynaklı DB hatalarını 400'e, gerisini 500'e çevirir. errors.As,
-// hata zincirinde belirli bir tipi arar — C#'taki
-// catch (PostgresException ex) when (ex.SqlState == "22P02") karşılığı.
+// writeDBError maps client-caused database errors (invalid UUID 22P02, missing node 23503) to 400
+// and everything else to 500 without details.
 func (a *API) writeDBError(w http.ResponseWriter, msg string, err error) {
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) {

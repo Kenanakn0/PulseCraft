@@ -5,10 +5,9 @@ import { RealtimeProvider } from '../realtime/RealtimeProvider'
 import { AlertsNavLink } from './AlertsNavLink'
 import { LiveIndicator } from './LiveIndicator'
 
-// Giriş yapılmış tüm sayfaların ortak çerçevesi (üst çubuk + sayfa içeriği).
-// Sağlayıcılar burada: bu çerçeve yalnızca giriş yapılmışken çizilir (RequireAuth), yani canlı bağlantı
-// ve alarm listesi oturumla birlikte açılır, çıkışta/oturum bitince kapanır. Sıra dıştan içe:
-// canlı bağlantı → alarmlar (olayları bağlantıdan alır) → sayfa.
+// Layout of all signed-in pages. The providers live here: the layout only renders with a session
+// (RequireAuth), so the live connection and the alert list open and close with the session. Outer to
+// inner: live connection → alerts (fed by the connection) → page.
 export function AppLayout() {
   const { user, logout } = useAuth()
 
@@ -30,7 +29,7 @@ export function AppLayout() {
             <span className="muted" data-testid="current-user">
               {user?.display_name}
             </span>
-            {/* void: dönen Promise'i bilerek beklemiyoruz (olay yöneticisi async olamaz) */}
+            {/* void: the promise is deliberately not awaited (event handlers cannot be async) */}
             <button type="button" onClick={() => void logout()}>
               Çıkış
             </button>

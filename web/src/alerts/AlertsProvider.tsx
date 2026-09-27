@@ -8,17 +8,17 @@ import { AlertsContext, type AckResult, type AlertsContextValue, type AlertsStat
 import { eventReducer, initialEventState, mergeAlerts } from './state'
 
 /**
- * REST'ten tam eşitleme aralığı. Canlı olaylar asıl kaynaktır; bu yoklama GÜVENLİK AĞIDIR: sunucuda Redis
- * kesilirse olaylar kaybolur ama WebSocket bağlantısı AÇIK kalır (yeniden bağlanma olmaz), yani panel sessizce
- * bayatlardı. Yeniden bağlanmada ayrıca hemen eşitlenir (epoch).
+ * Full REST resync interval. Live events are the primary source; this is a SAFETY NET: when Redis fails
+ * on the server, events are lost while the WebSocket stays OPEN (no reconnect), so the board would go
+ * stale silently. A reconnect also resyncs immediately (epoch).
  */
 export const ALERTS_SYNC_MS = 60_000
 
 const STATUSES: AlertStatus[] = ['open', 'acknowledged', 'resolved']
 
 /**
- * Üç durumu AYRI ister: sunucu her sorguda en yeni 200 kaydı döndürür; tek sorguyla (durum filtresiz) çok
- * sayıda yeni "resolved" kaydı, hâlâ açık olan ESKİ bir alarmı 200'ün dışına iterdi.
+ * Requests the three statuses SEPARATELY: the server returns the newest 200 per query, and with a single
+ * unfiltered query many new "resolved" rows would push an older, still open alert out of the 200.
  */
 async function fetchAllAlerts(signal: AbortSignal): Promise<AlertRow[]> {
   const parts = await Promise.all(STATUSES.map((status) => alertsApi.list(status, signal)))
@@ -31,17 +31,15 @@ interface AlertsProviderProps {
 }
 
 /**
- * Alarmların TEK paylaşılan kaynağı (üst çubuk sayacı ve alarm panosu aynı listeyi okur; C#'ta scoped bir
- * servis ya da Blazor `CascadingValue` gibi). İki kaynağı birleştirir:
- *  1) REST anlık görüntüsü (açılışta, yeniden bağlanınca, 60 sn'de bir, ack çakışmasında),
- *  2) WebSocket olayları (anında).
- * Birleştirme kuralları `alerts/state.ts`'te, saf fonksiyonlar olarak test edilir.
+ * The single shared source of alerts (the nav badge and the board read the same list). It merges a REST
+ * snapshot (on start, on reconnect, every 60 s, after an ack conflict) with live WebSocket events; the
+ * merge rules live in `alerts/state.ts` as pure, tested functions.
  */
 export function AlertsProvider({ children, syncMs = ALERTS_SYNC_MS }: AlertsProviderProps) {
   const [events, dispatch] = useReducer(eventReducer, initialEventState)
 
-  // Anlık görüntünün isteği BAŞLARKEN olay sayacı ne idi? (mergeAlerts bunu kullanır.) Fetcher çizim
-  // sırasında değil zamanlayıcıda/effect'te çalıştığı için ref'ten okumak güvenlidir.
+  // The event counter at the moment the snapshot request STARTED (used by mergeAlerts). The fetcher runs
+  // in a timer/effect, not during render, so reading the ref is safe.
   const eventsRef = useRef(events)
   useEffect(() => {
     eventsRef.current = events
@@ -53,7 +51,7 @@ export function AlertsProvider({ children, syncMs = ALERTS_SYNC_MS }: AlertsProv
     else if (event.type === 'node') dispatch({ type: 'nodeDeleted', nodeId: event.node_id })
   })
 
-  // Yeniden bağlanma (epoch) ya da elle istek (manualSync) → yükleme durumuna DÖNMEDEN hemen yeniden eşitle.
+  // Reconnect (epoch) or a manual request (manualSync): resync right away without going back to loading.
   const { epoch } = useRealtime()
   const [manualSync, setManualSync] = useState(0)
 
@@ -64,7 +62,7 @@ export function AlertsProvider({ children, syncMs = ALERTS_SYNC_MS }: AlertsProv
     },
     syncMs,
     'Alarmlar',
-    epoch + manualSync, // ikisi de yalnızca artar: toplam her artışta değişir
+    epoch + manualSync, // both only increase, so the sum changes on every increment
   )
 
   const state = useMemo<AlertsState>(() => {
@@ -79,8 +77,8 @@ export function AlertsProvider({ children, syncMs = ALERTS_SYNC_MS }: AlertsProv
   const acknowledge = useCallback(async (id: number): Promise<AckResult> => {
     try {
       const event = await alertsApi.acknowledge(id)
-      if (event === null) setManualSync((n) => n + 1) // yanıt çözümlenemedi: işlem yapıldı, doğruyu REST'ten al
-      else dispatch({ type: 'alert', event }) // WebSocket olayı da gelecek; ikinci uygulama etkisizdir (idempotent)
+      if (event === null) setManualSync((n) => n + 1) // response could not be parsed: the action happened, take the truth from REST
+      else dispatch({ type: 'alert', event }) // the WebSocket event will arrive too; applying it again has no effect (idempotent)
       return { kind: 'ok' }
     } catch (err) {
       if (err instanceof ApiError) {

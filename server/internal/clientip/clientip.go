@@ -1,10 +1,8 @@
-// Package clientip, bir HTTP isteğinin gerçek istemci IP'sini güvenli biçimde bulur.
+// Package clientip determines the real client IP of a request.
 //
-// X-Forwarded-For başlığını HERKES gönderebilir; körü körüne okumak, rate limit
-// gibi IP'ye dayalı korumaları tek başlıkla atlatılabilir hale getirir. Bu yüzden
-// başlık YALNIZCA bağlantıyı kuran doğrudan eş (RemoteAddr) güvenilir bir
-// proxy ise okunur. chi'nin middleware.RealIP'i bu kontrolü yapmadığı için
-// bilerek kullanılmıyor.
+// Anyone can send X-Forwarded-For; trusting it blindly would let a single header bypass IP-based
+// protections such as the login rate limit. It is therefore read only when the direct peer (RemoteAddr)
+// is a trusted proxy. chi's middleware.RealIP does not check that and is deliberately not used.
 package clientip
 
 import (
@@ -15,20 +13,17 @@ import (
 	"strings"
 )
 
-// Resolver: güvenilir proxy adres aralıklarını tutar.
 type Resolver struct {
 	trusted []netip.Prefix
 }
 
-// New: verilen güvenilir aralıklarla bir Resolver döndürür. Boş liste =
-// hiçbir proxy'ye güvenme (X-Forwarded-For hiç okunmaz).
+// New returns a Resolver; an empty list trusts no proxy (X-Forwarded-For is never read).
 func New(trusted []netip.Prefix) *Resolver {
 	return &Resolver{trusted: trusted}
 }
 
-// ParseTrustedProxies: virgülle ayrılmış CIDR listesini ("10.0.0.0/8, ::1/128")
-// ayrıştırır. Tek bir IP de kabul edilir (/32 ya da /128 sayılır). Boş metin,
-// boş liste demektir. Geçersiz kayıt hata döndürür (server başlamamalı).
+// ParseTrustedProxies parses a comma-separated CIDR list; a single IP counts as /32 or /128. Invalid
+// entries are an error, so the server refuses to start.
 func ParseTrustedProxies(csv string) ([]netip.Prefix, error) {
 	var prefixes []netip.Prefix
 	for _, raw := range strings.Split(csv, ",") {
@@ -56,15 +51,10 @@ func ParseTrustedProxies(csv string) ([]netip.Prefix, error) {
 	return prefixes, nil
 }
 
-// ClientIP: isteğin istemci IP'sini döndürür.
-//
-//   - Doğrudan eş güvenilir değilse: RemoteAddr (X-Forwarded-For YOK SAYILIR).
-//   - Güvenilirse: X-Forwarded-For zinciri SAĞDAN SOLA taranır; güvenilir
-//     proxy'ler atlanır, ilk güvenilmeyen adres istemcidir. Zincirin sol tarafı
-//     istemci tarafından uydurulabildiği için ilk güvenilmeyen adresin
-//     solundakilere asla bakılmaz.
-//   - Zincirde ayrıştırılamayan bir değer görülürse, ona en yakın son geçerli
-//     (güvenilir) hop döndürülür.
+// ClientIP returns RemoteAddr unless the direct peer is trusted. Behind a trusted proxy the
+// X-Forwarded-For chain is read right to left: trusted proxies are skipped and the first untrusted address
+// is the client. Anything to its left can be forged by the client and is never looked at. If an
+// unparsable entry is met, the last valid (trusted) hop is returned.
 func (r *Resolver) ClientIP(req *http.Request) netip.Addr {
 	peer := parsePeer(req.RemoteAddr)
 	if !peer.IsValid() || !r.isTrusted(peer) {
@@ -102,7 +92,6 @@ func (r *Resolver) isTrusted(addr netip.Addr) bool {
 	return false
 }
 
-// parsePeer: "1.2.3.4:5678" ya da "[::1]:5678" biçimindeki RemoteAddr'dan IP'yi alır.
 func parsePeer(remoteAddr string) netip.Addr {
 	if ap, err := netip.ParseAddrPort(remoteAddr); err == nil {
 		return ap.Addr().Unmap().WithZone("")

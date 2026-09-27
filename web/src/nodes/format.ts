@@ -2,14 +2,14 @@ import type { NodeSummary } from '../api/types'
 
 const percentFormat = new Intl.NumberFormat('tr-TR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
-/** 42.5 → "42,5 %" (Türkçe ondalık ayracı). */
+/** 42.5 → "42,5 %" (Turkish decimal separator). */
 export function formatPercent(value: number): string {
   return `${percentFormat.format(value)} %`
 }
 
 /**
- * Sunucunun bildirdiği "son görülmeden bu yana geçen saniye"yi okunur metne çevirir.
- * Süre SUNUCUDA hesaplanır (tarayıcı saati kullanılmaz), burada yalnızca biçimlenir.
+ * Formats the server-reported seconds since last seen. The age is computed on the SERVER; the browser
+ * clock is not used.
  */
 export function formatAge(seconds: number | null): string {
   if (seconds === null) return 'hiç görülmedi'
@@ -21,10 +21,8 @@ export function formatAge(seconds: number | null): string {
 }
 
 /**
- * Çevrimiçi olanlar önce, kendi içinde ada göre (Türkçe sıralama). Diziyi DEĞİŞTİRMEZ,
- * sıralı bir KOPYA döndürür: React'te state/props olarak gelen dizi yerinde değiştirilmemelidir
- * (C#'ta `list.OrderBy(...)` yeni bir dizi üretir, `list.Sort()` ise yerinde değiştirir; burada
- * OrderBy gibi davranmamız gerekir).
+ * Online first, then by name (Turkish collation). Returns a sorted COPY: arrays from props/state must
+ * not be mutated.
  */
 export function sortNodes(nodes: readonly NodeSummary[]): NodeSummary[] {
   return [...nodes].sort((a, b) => {

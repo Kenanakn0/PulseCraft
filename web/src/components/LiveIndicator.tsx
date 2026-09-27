@@ -8,7 +8,7 @@ const LABELS: Record<ConnectionStatus, string> = {
   closed: 'Bağlantı yok',
 }
 
-/** Üst çubuktaki canlı bağlantı göstergesi. Bağlantı kopunca kullanıcı verinin artık akmadığını görür. */
+/** Live connection indicator: when the connection drops, the user sees that data has stopped flowing. */
 export function LiveIndicator() {
   const { status } = useRealtime()
 

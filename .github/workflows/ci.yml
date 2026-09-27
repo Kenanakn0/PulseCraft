@@ -37,7 +37,7 @@ jobs:
           unformatted="$(gofmt -l .)"
           if [ -n "$unformatted" ]; then echo "gofmt gerekli:"; echo "$unformatted"; exit 1; fi
       - run: go vet ./...
-      # Entegrasyon testleri burada ortam değişkeni olmadığı için atlanır; "stack" işinde gerçek DB/Redis'e karşı koşar.
+      # Integration tests are skipped here (no database); they run against the real stack in the "stack" job.
       - run: go test -race -count=1 ./...
       - run: go build ./...
 
@@ -72,8 +72,8 @@ jobs:
         with:
           persist-credentials: false
 
-      # Her koşuda RASTGELE, tek kullanımlık kimlik bilgileri: repoda parola yok, loglarda maskelenir,
-      # yığın iş bitince silinir.
+      # Random one-time credentials on every run: no passwords in the repository, masked in the logs, and
+      # the stack is removed at the end.
       - name: Generate throw-away .env
         run: |
           PG_PASS="$(openssl rand -hex 16)"
@@ -135,7 +135,7 @@ jobs:
         working-directory: server
         env:
           PULSECRAFT_TEST_REDIS_URL: redis://127.0.0.1:6379/0
-        # Ortam değişkeni eksikse testler sessizce ATLANIR ve iş yeşil görünürdü: atlanan varsa başarısız say.
+        # Without their variables the tests would be skipped silently and the job would pass: fail on a skip.
         run: |
           set -o pipefail
           go test -race -count=1 -run Integration -v ./internal/api | tee "$RUNNER_TEMP/integration.log"

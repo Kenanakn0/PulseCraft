@@ -6,7 +6,7 @@ import { RealtimeContext, type RealtimeContextValue, type RealtimeListener } fro
 
 interface RealtimeProviderProps {
   children: ReactNode
-  /** Testte sahte soket vermek için. Varsayılan: tarayıcının WebSocket'i. */
+  /** Lets tests inject a fake socket. Default: the browser's WebSocket. */
   createSocket?: (url: string) => SocketLike
   url?: string
   baseDelayMs?: number
@@ -17,9 +17,8 @@ const defaultUrl = () => `${window.location.protocol === 'https:' ? 'wss' : 'ws'
 const defaultCreateSocket = (url: string): SocketLike => new WebSocket(url)
 
 /**
- * Giriş yapılmış oturum boyunca TEK bir WebSocket bağlantısı tutar ve gelen olayları abonelere dağıtır
- * (C#'ta uygulama ömürlü tek bir SignalR bağlantısı + bir olay aracısı gibi). Her sayfa kendi
- * soketini açmaz; sayfalar `useRealtimeEvents` ile bu ortak akışa abone olur.
+ * Keeps ONE WebSocket connection for the whole signed-in session and dispatches its events to
+ * subscribers; pages subscribe with `useRealtimeEvents` instead of opening their own sockets.
  */
 export function RealtimeProvider({
   children,
@@ -31,10 +30,10 @@ export function RealtimeProvider({
   const [status, setStatus] = useState<ConnectionStatus>('connecting')
   const [epoch, setEpoch] = useState(0)
 
-  // Aboneler bir ref'te tutulur: abone eklemek/çıkarmak ekranı yeniden ÇİZDİRMEMELİ.
+  // Subscribers live in a ref: adding or removing one must not cause a re-render.
   const listeners = useRef(new Set<RealtimeListener>())
 
-  // Bağlantı parametrelerinin ilk değerleri: bunlar değişince soketi yeniden kurmak istemeyiz.
+  // Initial connection parameters: changing them should not recreate the socket.
   const initial = useRef({ createSocket, url, baseDelayMs, maxDelayMs })
 
   useEffect(() => {
@@ -53,10 +52,10 @@ export function RealtimeProvider({
       onOpen: (reconnected) => {
         if (reconnected) setEpoch((n) => n + 1)
       },
-      // Sunucu "oturum bitti" dedi: yeniden bağlanma yok, kullanıcı giriş ekranına döner.
+      // The server ended the session: no reconnect, the user returns to the login page.
       onSessionEnded: notifyUnauthorized,
-      // Tarayıcı, el sıkışması 401 ile reddedilse bile yalnızca 1006 verir (nedeni söylemez). Her
-      // kopmada oturumu sorarız: 401 gelirse (silent401 KAPALI) global bildirim giriş ekranına götürür.
+      // Even when the handshake is rejected with 401, the browser only reports 1006 (no reason). So after every
+      // disconnect the session is checked: a 401 (not silent) sends the user to login via the global notice.
       onAbnormalClose: () => {
         authApi.probe(probeController.signal).catch(() => undefined)
       },
@@ -69,7 +68,7 @@ export function RealtimeProvider({
     }
   }, [])
 
-  // useCallback: `subscribe`'ın kimliği hiç değişmez; durum/epoch değişince aboneler yeniden kurulmaz.
+  // Stable identity: status/epoch changes do not re-subscribe everyone.
   const subscribe = useCallback((listener: RealtimeListener) => {
     listeners.current.add(listener)
     return () => {

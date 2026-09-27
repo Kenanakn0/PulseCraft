@@ -1,7 +1,7 @@
 import { expect, request, test, type APIRequestContext, type Page } from '@playwright/test'
 
-// README ekran görüntüleri. UYDURMA veri: sunucu adları/hostname'ler hayalidir (web-01, db-01 …), metrikler
-// tohumlu (deterministik) bir üreteçle çizilir. Kimseye ait gerçek ad, bilgisayar adı ya da anahtar görüntüye girmez.
+// README screenshots from FICTIONAL data: server names and hostnames are made up (web-01, db-01 …) and the
+// metrics come from a seeded generator. No real name, machine name or key ends up in an image.
 
 const OUT = '../docs/screenshots'
 const shot = (name: string) => `${OUT}/${name}.png`
@@ -9,7 +9,7 @@ const shot = (name: string) => `${OUT}/${name}.png`
 const admin = { email: process.env.SHOTS_ADMIN_EMAIL, password: process.env.SHOTS_ADMIN_PASSWORD }
 const ops = { email: process.env.SHOTS_OPS_EMAIL, password: process.env.SHOTS_OPS_PASSWORD }
 
-// Tohumlu sözde rastgele sayı (her koşuda aynı eğriler).
+// Seeded pseudo-random numbers: identical curves on every run.
 function rng(seed: number) {
   let s = seed
   return () => {
@@ -24,18 +24,18 @@ interface Profile {
   cpu: (i: number, n: number, r: () => number) => number
   mem: (i: number, n: number, r: () => number) => number
   disk: number
-  /** Son örnek şimdiden kaç saniye önce (çevrimdışı görünmesi için > 15 sn). */
+  /** How many seconds ago the last sample was taken (> 15 s makes the server appear offline). */
   endAgoSec: number
 }
 
-const N = 180 // 15 dk, 5 sn aralık
+const N = 180 // 15 min at 5 s intervals
 const STEP_MS = 5_000
 
 const profiles: Profile[] = [
   {
     name: 'web-01',
     hostname: 'web-01.demo.internal',
-    // Ortada ~3 dk süren bir CPU sıçraması: "Yüksek CPU" alarmı açılıp ÇÖZÜLÜR (çözülen sekmesi için).
+    // A ~3 min CPU spike in the middle opens and resolves "Yüksek CPU" (for the resolved tab).
     cpu: (i, _n, r) => (i > 70 && i < 110 ? 91 + r() * 6 : 38 + 12 * Math.sin(i / 9) + r() * 6),
     mem: (i, _n, r) => 58 + 4 * Math.sin(i / 25) + r() * 2,
     disk: 41.3,
@@ -52,7 +52,7 @@ const profiles: Profile[] = [
   {
     name: 'db-01',
     hostname: 'db-01.demo.internal',
-    // Son ~2 dk CPU yüksek: "Yüksek CPU" (kritik) AÇIK kalır. Disk sürekli %88: "Disk dolmak üzere" (uyarı).
+    // CPU high for the last ~2 min: the critical "Yüksek CPU" alert stays OPEN. Disk at 88 %: "Disk dolmak üzere".
     cpu: (i, n, r) => (i > n - 24 ? 90 + r() * 5 : 55 + 10 * Math.sin(i / 7) + r() * 5),
     mem: (i, _n, r) => 76 + 3 * Math.sin(i / 15) + r() * 2,
     disk: 88.4,
@@ -64,7 +64,7 @@ const profiles: Profile[] = [
     cpu: (i, _n, r) => 12 + 4 * Math.sin(i / 6) + r() * 3,
     mem: (_i, _n, r) => 44 + r() * 2,
     disk: 22.1,
-    endAgoSec: 240, // 4 dk önce sustu → çevrimdışı
+    endAgoSec: 240, // silent for 4 min → offline
   },
 ]
 
@@ -116,11 +116,11 @@ test.describe('README ekran görüntüleri', () => {
     const api = await login(admin.email!, admin.password!)
     adminState = await api.storageState()
 
-    // Boş bir prova yığını bekleniyor: yanlışlıkla gerçek veriye karşı çalışmayı engelle.
+    // Expect an empty stack: refuse to run against real data by accident.
     const existing = (await (await api.get('/api/v1/nodes')).json()) as unknown[]
     expect(existing, 'README görüntüleri BOŞ bir prova yığınında üretilmeli').toHaveLength(0)
 
-    // Kurallar ÖNCE: motor geçmiş örnekleri değerlendirirken kurallar hazır olsun.
+    // Rules first, so the engine evaluates the history against them.
     const rules = [
       { name: 'Yüksek CPU', node_id: null, metric: 'cpu_percent', operator: '>', threshold: 85, duration_seconds: 60, severity: 'critical', enabled: true },
       { name: 'Disk dolmak üzere', node_id: null, metric: 'disk_percent', operator: '>', threshold: 85, duration_seconds: 0, severity: 'warning', enabled: true },
@@ -130,9 +130,9 @@ test.describe('README ekran görüntüleri', () => {
 
     const now = Date.now()
     seeded = []
-    // Alarmın açılış/çözülüş zamanı SUNUCUNUN kayıt anıdır (örnek zamanı değil). web-01'in geçmişi tek istekte
-    // gitse "Yüksek CPU" aynı anda açılıp çözülür ("Süre: 0 sn"); bu yüzden sıçramadan SONRAKİ kısmı bekleme
-    // sonunda gönderilir → çözülen alarm gerçek bir süre gösterir.
+    // Alert open/resolve times are the server's receive time, not the sample time. Sent in one request,
+    // web-01's history would open and resolve the alert at the same instant ("Süre: 0 sn"), so the part after
+    // the spike is sent after the wait below and the resolved alert shows a real duration.
     let deferred: (() => Promise<void>) | undefined
     for (const [idx, p] of profiles.entries()) {
       const created = await api.post('/api/v1/nodes', { data: { name: p.name } })
@@ -149,7 +149,7 @@ test.describe('README ekran görüntüleri', () => {
       seeded.push({ id, key, profile: p })
     }
 
-    // Disk uyarısını "Operatör" incelemeye alır (ikinci kullanıcı).
+    // The disk warning is acknowledged by the second user ("Operatör").
     const opsApi = await login(ops.email!, ops.password!)
     const open = (await (await opsApi.get('/api/v1/alerts?status=open')).json()) as { id: number; rule_name: string }[]
     const disk = open.find((a) => a.rule_name === 'Disk dolmak üzere')
@@ -158,13 +158,13 @@ test.describe('README ekran görüntüleri', () => {
     await opsApi.dispose()
     await api.dispose()
 
-    // "Son görülme" SUNUCU saatiyle, isteğin geldiği an yazılır (örneğin zaman damgasıyla değil). cache-01'in
-    // çevrimdışı görünmesi için 15 sn eşiğini beklemek gerekir; diğerleri her görüntüden önce nabız gönderir.
+    // last_seen is the server's receive time, so cache-01 only appears offline after the 15 s threshold;
+    // the other servers send a heartbeat before every screenshot.
     await new Promise((resolve) => setTimeout(resolve, 17_000))
-    await deferred!() // web-01 normale döner → "Yüksek CPU" çözülür
+    await deferred!() // web-01 recovers → "Yüksek CPU" resolves
   })
 
-  /** Çevrimiçi sunuculara "şimdi" zamanlı birer örnek (15 sn eşiği içinde kalsınlar). */
+  /** One sample stamped "now" for each online server (keeps them within the 15 s threshold). */
   async function heartbeat(baseURL: string | undefined) {
     for (const s of seeded) {
       if (s.profile.endAgoSec > 0) continue
@@ -196,8 +196,8 @@ test.describe('README ekran görüntüleri', () => {
       await open(page, baseURL, `/nodes/${db.id}`)
       await expect(page.getByText(/ham ölçümler/)).toBeVisible()
       await expect(page.locator('.chart-box canvas')).toHaveCount(2)
-      await page.waitForTimeout(300) // canvas çizimi
-      // "Sunucuyu sil" bölümü görüntüye girmesin: grafiklerin sonuna kadar kırp.
+      await page.waitForTimeout(300) // let the canvas draw
+      // Crop at the end of the charts so the delete section stays out of the image.
       const box = await page.locator('.metrics-panel').boundingBox()
       await page.screenshot({ path: shot(name), clip: { x: 0, y: 0, width: 1280, height: Math.ceil(box!.y + box!.height + 24) }, fullPage: true })
       await context.close()
@@ -208,7 +208,7 @@ test.describe('README ekran görüntüleri', () => {
     const context = await browser.newContext({ storageState: adminState })
     const page = await context.newPage()
     await open(page, baseURL, '/alerts')
-    await expect(page.getByTestId('alert-card')).toHaveCount(1) // açık: db-01 Yüksek CPU
+    await expect(page.getByTestId('alert-card')).toHaveCount(1) // open: db-01 Yüksek CPU
     await page.screenshot({ path: shot('alerts-open') })
 
     await page.getByRole('tab', { name: /İncelenen/ }).click()

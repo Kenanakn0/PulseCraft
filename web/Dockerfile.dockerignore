@@ -1,10 +1,10 @@
-# web/Dockerfile için .dockerignore (context = repo kökü). Önce HER ŞEYİ hariç tut, sonra gerekenleri geri al
-# (beyaz liste): server/, agent/, .git, deploy/.env (sırlar) hiçbir zaman derleme context'ine girmez.
+# .dockerignore for web/Dockerfile (context = repository root). Allow-list: exclude EVERYTHING, then add back
+# what is needed, so server/, agent/, .git and deploy/.env (secrets) never enter the build context.
 *
 !web
 !deploy/nginx/conf.d
 
-# web/ içinden derlemeye girmemesi gerekenler
+# Parts of web/ that the build does not need
 web/node_modules
 web/dist
 web/test-results

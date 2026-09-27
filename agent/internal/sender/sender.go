@@ -13,17 +13,14 @@ import (
 	"github.com/Kenanakn0/pulsecraft/agent/internal/collector"
 )
 
-// Sender: metrikleri Core Server'a HTTP üzerinden gönderir.
 type Sender struct {
 	serverURL string
 	apiKey    string
-	hostname  string // boşsa gövdede hiç yer almaz (varsayılan)
+	hostname  string
 	client    *http.Client
 }
 
-// New: bir Sender oluşturur. http.Client, C#'taki HttpClient gibi tek bir
-// örnek olarak yaratılıp tekrar tekrar kullanılmalıdır — bağlantı havuzunu
-// (connection pool) paylaşır, her istekte yeni Client oluşturmak israf olur.
+// New creates a Sender. Reuse it: it shares one http.Client and its connection pool.
 func New(serverURL, apiKey, hostname string) *Sender {
 	return &Sender{
 		serverURL: serverURL,
@@ -35,20 +32,16 @@ func New(serverURL, apiKey, hostname string) *Sender {
 	}
 }
 
-// payload: sunucunun /api/v1/metrics endpoint'inde beklediği JSON gövdesi.
 type payload struct {
-	// omitempty: hostname ayarlanmadıysa alan JSON'da HİÇ bulunmaz (gerçek bilgisayar
-	// adı asla kendiliğinden gönderilmez).
+	// omitempty: without -hostname the field is absent, never an automatically detected name.
 	Hostname string             `json:"hostname,omitempty"`
 	Samples  []collector.Sample `json:"samples"`
 }
 
-// ErrUnauthorized: sunucu API anahtarını reddetti (HTTP 401). Yeniden denemek anlamsızdır: anahtar yanlış ya
-// da sunucu (node) silinmiş; çağıran agent'ı açık bir mesajla durdurmalıdır.
+// ErrUnauthorized: the server rejected the key (wrong key or deleted server). Retrying cannot help, so the
+// caller should stop with a clear message.
 var ErrUnauthorized = errors.New("sunucu API anahtarını reddetti (HTTP 401)")
 
-// Send: samples listesini tek bir POST isteğiyle sunucuya gönderir.
-// Sunucuya ulaşılamazsa veya 2xx dışında bir durum kodu dönerse hata döner.
 func (s *Sender) Send(ctx context.Context, samples []collector.Sample) error {
 	body, err := json.Marshal(payload{Hostname: s.hostname, Samples: samples})
 	if err != nil {
@@ -79,10 +72,7 @@ func (s *Sender) Send(ctx context.Context, samples []collector.Sample) error {
 	return nil
 }
 
-// BufferedSender: Sender'ı sarmalar (composition — Go'da kalıtım yoktur,
-// "has-a" ilişkisi bir struct'ı başka bir struct'ın alanı yaparak kurulur).
-// Gönderilemeyen örnekleri bellekte sınırlı bir buffer'da tutar ve
-// exponential backoff ile tekrar dener.
+// BufferedSender keeps unsent samples in a bounded buffer and retries with exponential backoff.
 type BufferedSender struct {
 	sender     *Sender
 	maxBuffer  int
@@ -93,7 +83,6 @@ type BufferedSender struct {
 	nextTry    time.Time
 }
 
-// NewBuffered: en fazla maxBuffer örnek tutabilen bir BufferedSender oluşturur.
 func NewBuffered(s *Sender, maxBuffer int) *BufferedSender {
 	return &BufferedSender{
 		sender:     s,
@@ -103,8 +92,7 @@ func NewBuffered(s *Sender, maxBuffer int) *BufferedSender {
 	}
 }
 
-// Add: yeni bir örneği buffer'a ekler. Buffer maxBuffer'ı aşarsa en eski
-// örnekler atılır (sabit boyutlu bir kuyruk).
+// Add drops the oldest samples when the buffer is full.
 func (b *BufferedSender) Add(sample collector.Sample) {
 	b.buffer = append(b.buffer, sample)
 	if len(b.buffer) > b.maxBuffer {
@@ -114,14 +102,10 @@ func (b *BufferedSender) Add(sample collector.Sample) {
 	}
 }
 
-// Flush: buffer boş değilse ve backoff süresi dolmuşsa, buffer'daki TÜM
-// örnekleri TEK bir istekte göndermeyi dener (toplu gönderim). Başarılı
-// olursa buffer temizlenir ve backoff sıfırlanır; başarısız olursa backoff
-// katlanarak (exponential) artar — sunucu ayaktayken her tick'te değil,
-// gittikçe seyrekleşen aralıklarla tekrar denenir.
+// Flush sends the whole buffer in one request once the backoff has elapsed. On failure the backoff
+// doubles, so an unreachable server is retried less and less often.
 //
-// Yalnızca KALICI hatayı döndürür: ErrUnauthorized (yanlış anahtarla yeniden denemek işe yaramaz).
-// Geçici hatalar (ağ, 5xx) burada loglanıp backoff ile yeniden denenir, nil döner.
+// Only a permanent error is returned (ErrUnauthorized); transient errors are logged and retried later.
 func (b *BufferedSender) Flush(ctx context.Context) error {
 	if len(b.buffer) == 0 {
 		return nil
@@ -152,9 +136,6 @@ func (b *BufferedSender) Flush(ctx context.Context) error {
 	return nil
 }
 
-// nextBackoff: mevcut backoff'u ikiye katlar (0 ise min'den başlar),
-// max'ı aşmasına izin vermez. C#'ta Polly kütüphanesindeki exponential
-// backoff politikasıyla aynı fikir.
 func nextBackoff(current, min, max time.Duration) time.Duration {
 	if current == 0 {
 		return min

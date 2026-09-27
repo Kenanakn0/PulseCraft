@@ -7,7 +7,6 @@ import (
 	"time"
 )
 
-// env: testte gerçek ortam değişkenleri yerine kullanılan sahte ortam.
 func env(m map[string]string) func(string) string {
 	return func(k string) string { return m[k] }
 }

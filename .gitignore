@@ -1,4 +1,4 @@
-# --- Gizli bilgiler ---
+# --- Secrets ---
 .env
 *.env
 !.env.example
@@ -11,16 +11,16 @@
 *.out
 coverage.*
 
-# --- Node / Frontend (Evre 4) ---
+# --- Node / frontend ---
 node_modules/
 dist/
 build/
-# Playwright çıktıları (ekran görüntüleri/izler yerel; README görselleri 4.3'te bilinçli olarak eklenir)
+# Playwright output (local screenshots and traces; README images live in docs/)
 /web/test-results/
 /web/playwright-report/
 /web/e2e/screenshots/
 
-# --- Editör / İşletim sistemi ---
+# --- Editors / OS ---
 .vscode/
 .idea/
 *.swp
@@ -28,16 +28,16 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 
-# --- Oturum çerezi / token dosyaları (asla repoya girmesin) ---
+# --- Session cookie / token files ---
 cookie.txt
 *.cookie
 
-# --- Playwright oturum durumları (oturum ÇEREZİ içerir) ---
+# --- Playwright session state (contains session cookies) ---
 /web/e2e/.auth/
 
-# --- Agent API anahtarı dosyaları (-api-key-file) — anahtar asla repoya girmez ---
+# --- Agent API key files (-api-key-file) ---
 *.key
 
-# --- deploy/secrets: örnek agent anahtarı gibi sırlar (yalnızca README izlenir) ---
+# --- deploy/secrets: secrets such as the demo agent key (only the README is tracked) ---
 /deploy/secrets/*
 !/deploy/secrets/README.md

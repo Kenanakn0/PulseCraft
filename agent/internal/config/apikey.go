@@ -10,35 +10,32 @@ import (
 	"unicode/utf16"
 )
 
-// utf8BOM: Windows Not Defteri gibi araçların dosya başına eklediği bayt sırası işareti (U+FEFF).
 const utf8BOM = string(rune(0xFEFF))
 
-// apiKeyLen: sunucunun ürettiği anahtarın uzunluğu (32 rastgele baytın onaltılık gösterimi).
+// apiKeyLen is the hex length of the server's 32-byte keys.
 const apiKeyLen = 64
 
-// maxPromptAttempts: etkileşimli girişte geçersiz anahtar kaç kez yeniden sorulur.
 const maxPromptAttempts = 3
 
-// ErrNoAPIKey: hiçbir kaynaktan anahtar gelmedi ve soracak bir terminal de yok.
+// ErrNoAPIKey: no key from any source and no terminal to ask on.
 var ErrNoAPIKey = errors.New("API anahtarı verilmedi. Seçenekler: agent'ı bir terminalde çalıştırıp sorulduğunda " +
 	"yapıştırın, -api-key-file ile bir dosyadan okutun ya da PULSECRAFT_API_KEY ortam değişkenini ayarlayın")
 
-// ErrKeyFileIsDir: -api-key-file bir KLASÖRÜ gösteriyor. Tipik neden: Docker, bağlanacak dosya host'ta yokken
-// onun yerine boş bir klasör oluşturur.
+// ErrKeyFileIsDir: typically Docker created an empty directory because the bind-mounted file did not
+// exist on the host.
 var ErrKeyFileIsDir = errors.New("dosya yerine bir KLASÖR var")
 
-// KeyInput: anahtarın okunacağı dış dünya. Load gerçek terminali/dosya sistemini verir; testler sahtesini.
-// (C#'ta bir IConsole / IFileSystem arayüzünü enjekte etmek gibi.)
+// KeyInput abstracts the terminal and file system so that tests can fake them.
 type KeyInput struct {
-	IsTerminal   func() bool                  // standart girdi bir terminal mi (etkileşimli soru sorulabilir mi)
-	ReadPassword func() ([]byte, error)       // bir satırı EKRANA BASMADAN okur
-	ReadFile     func(string) ([]byte, error) // -api-key-file için
-	Prompt       io.Writer                    // soru ve uyarılar buraya (stderr) yazılır
+	IsTerminal   func() bool
+	ReadPassword func() ([]byte, error) // reads a line without echoing it
+	ReadFile     func(string) ([]byte, error)
+	Prompt       io.Writer
 }
 
-// ResolveAPIKey: anahtarı sırasıyla (1) -api-key / PULSECRAFT_API_KEY, (2) -api-key-file /
-// PULSECRAFT_API_KEY_FILE, (3) terminal varsa etkileşimli (gizli) giriş kaynağından alır ve doğrular.
-// Döndürülen `source`, loglarda anahtarın NEREDEN geldiğini göstermek içindir (anahtarın kendisi asla loglanmaz).
+// ResolveAPIKey takes the key from (1) -api-key / PULSECRAFT_API_KEY, (2) -api-key-file /
+// PULSECRAFT_API_KEY_FILE, or (3) a hidden prompt when stdin is a terminal. source is only for logging;
+// the key itself is never logged.
 func ResolveAPIKey(key, file string, in KeyInput) (value, source string, err error) {
 	switch {
 	case key != "" && file != "":
@@ -72,7 +69,7 @@ func ResolveAPIKey(key, file string, in KeyInput) (value, source string, err err
 		for attempt := 1; attempt <= maxPromptAttempts; attempt++ {
 			fmt.Fprint(in.Prompt, "API anahtarını yapıştırıp Enter'a basın (ekranda görünmez): ")
 			raw, err := in.ReadPassword()
-			fmt.Fprintln(in.Prompt) // gizli girişte Enter satır atlatmaz
+			fmt.Fprintln(in.Prompt) // Enter does not produce a newline with hidden input
 			if err != nil {
 				return "", "", fmt.Errorf("anahtar okunamadı: %w", err)
 			}
@@ -89,9 +86,8 @@ func ResolveAPIKey(key, file string, in KeyInput) (value, source string, err err
 	}
 }
 
-// NormalizeAPIKey: baştaki/sondaki boşlukları ve yeni satırları, dosya başındaki UTF-8 BOM'u kırpar, küçük harfe
-// çevirir ve biçimi doğrular (64 onaltılık karakter). Hata mesajı anahtarı ASLA içermez; yalnızca uzunluğu ve
-// olası nedeni söyler (panoda anahtar yerine bir komut kalması gibi).
+// NormalizeAPIKey trims whitespace and a UTF-8 BOM, lower-cases and validates the key. Errors never
+// contain the key, only its length and a likely cause (e.g. a copied command instead of the key).
 func NormalizeAPIKey(raw string) (string, error) {
 	v := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(raw, utf8BOM)))
 	if v == "" {
@@ -109,9 +105,8 @@ func NormalizeAPIKey(raw string) (string, error) {
 		apiKeyLen, len([]rune(v)), hint)
 }
 
-// decodeKeyFile: dosya baytlarını metne çevirir. Windows PowerShell 5.1'de `"..." > dosya` ve `Out-File`
-// varsayılan olarak UTF-16 (BOM'lu) yazar; UTF-8 sanıp okursak araya NUL baytları girer ve anahtar hiç
-// eşleşmez. BOM'a bakıp UTF-16 LE/BE'yi çözer, aksi halde UTF-8 kabul eder (UTF-8 BOM'u NormalizeAPIKey kırpar).
+// decodeKeyFile handles UTF-16 files: Windows PowerShell 5.1 writes UTF-16 with a BOM by default
+// (`>` and Out-File), and reading that as UTF-8 would never match.
 func decodeKeyFile(b []byte) string {
 	var order binary.ByteOrder
 	switch {

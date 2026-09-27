@@ -10,9 +10,6 @@ import (
 	"time"
 )
 
-// Gerçek DB ister (bkz. newIntegration); şema: deploy/init/01_schema.sql (ux_metrics_node_time dahil).
-
-// ingestBatch: agent gibi (yalnızca Bearer anahtarla) verilen örnekleri tek istekte gönderir.
 func (c *integration) ingestBatch(apiKey string, samples []map[string]any) int {
 	c.t.Helper()
 	body, _ := json.Marshal(map[string]any{"samples": samples})
@@ -41,7 +38,7 @@ func TestIntegration_Metrics_ResentBatchDoesNotDuplicateRows(t *testing.T) {
 	base := time.Now().Add(-time.Minute).Truncate(time.Millisecond)
 	batch := []map[string]any{sampleAt(base, 10, nil), sampleAt(base.Add(time.Second), 20, nil), sampleAt(base.Add(2*time.Second), 30, nil)}
 
-	// Agent zaman aşımına uğrayıp AYNI batch'i yeniden gönderdi (sunucu ilkini aslında yazmıştı).
+	// The agent timed out and re-sent the same batch although the server had stored it.
 	for i := 0; i < 2; i++ {
 		if code := c.ingestBatch(key, batch); code != http.StatusAccepted {
 			t.Fatalf("%d. gönderim 202 bekleniyordu, %d", i+1, code)
@@ -51,7 +48,6 @@ func TestIntegration_Metrics_ResentBatchDoesNotDuplicateRows(t *testing.T) {
 		t.Errorf("yeniden gönderim mükerrer satır üretmemeli: %d satır (3 bekleniyordu)", n)
 	}
 
-	// Kısmen örtüşen batch: yeniler eklenir, eskiler atlanır.
 	overlap := []map[string]any{sampleAt(base.Add(2*time.Second), 99, nil), sampleAt(base.Add(3*time.Second), 40, nil)}
 	if code := c.ingestBatch(key, overlap); code != http.StatusAccepted {
 		t.Fatalf("örtüşen batch 202 bekleniyordu, %d", code)
@@ -59,7 +55,7 @@ func TestIntegration_Metrics_ResentBatchDoesNotDuplicateRows(t *testing.T) {
 	if n := c.count(`SELECT count(*) FROM metrics WHERE node_id = $1`, nodeID); n != 4 {
 		t.Errorf("yalnızca yeni örnek eklenmeliydi: %d satır (4 bekleniyordu)", n)
 	}
-	// İlk yazılan kazanır: çakışan örneğin değeri değişmedi (DO NOTHING, DO UPDATE değil).
+	// The first write wins (DO NOTHING, not DO UPDATE).
 	var cpu float64
 	if err := c.db.QueryRow(t.Context(), `SELECT cpu_percent FROM metrics WHERE node_id = $1 AND time = $2`,
 		nodeID, base.Add(2*time.Second)).Scan(&cpu); err != nil {
@@ -88,7 +84,7 @@ func TestIntegration_Metrics_LargeBatchAndNullableLoad1(t *testing.T) {
 	c := newIntegration(t)
 	nodeID, key := c.createNodeViaAPI("it-node-buyuk-batch")
 
-	// Agent'ın tampon üst sınırı kadar (1000) örnek, tek istekte; yarısında load1 var (Linux), yarısında yok (Windows).
+	// The agent's buffer limit (1000) in one request; half with load1 (Linux), half without (Windows).
 	start := time.Now().Add(-time.Hour).Truncate(time.Second)
 	batch := make([]map[string]any, 1000)
 	for i := range batch {
@@ -141,7 +137,7 @@ func TestIntegration_Metrics_RejectsOversizedRequests(t *testing.T) {
 		t.Fatalf("reddedilen istekten %d satır yazıldı", n)
 	}
 
-	// Gövde sınırı (2 MiB) örnek sayısından bağımsız uygulanır.
+	// The body limit (2 MiB) applies regardless of the sample count.
 	body, _ := json.Marshal(map[string]any{"hostname": strings.Repeat("h", maxRequestBody), "samples": batch(1)})
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/metrics", bytes.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+key)

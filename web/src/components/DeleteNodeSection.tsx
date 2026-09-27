@@ -8,9 +8,9 @@ interface DeleteNodeSectionProps {
 }
 
 /**
- * Sunucu detayının altındaki "tehlikeli bölge". Silme GERİ ALINAMAZ ve çok şey götürür (tüm metrikler, alarm
- * geçmişi, yalnızca bu sunucuya ait kurallar, agent anahtarı); bu yüzden kural silmedeki iki aşamalı onaydan
- * daha güçlü bir onay istenir: sunucunun adını yazmak (GitHub'ın depo silme onayı gibi).
+ * The "danger zone" under the server detail. Deleting cannot be undone and removes a lot (all metrics,
+ * alert history, rules scoped to this server, the agent key), so it asks for a stronger confirmation than
+ * rule deletion: typing the server's name, like GitHub's repository deletion.
  */
 export function DeleteNodeSection({ node, onDeleted }: DeleteNodeSectionProps) {
   const [confirming, setConfirming] = useState(false)

@@ -7,14 +7,13 @@ import (
 	"time"
 )
 
-// Denylist: logout ile iptal edilen token kimliklerini (jti) bellekte tutar.
+// Denylist keeps the jti of logged-out tokens in memory until they expire.
 //
-// Bilinen sınırlama: bellekte olduğu için server yeniden başlayınca sıfırlanır;
-// o zamana dek iptal edilmiş ama süresi dolmamış bir token yeniden geçerli olur.
-// (Şema değişikliği ve Redis bağımlılığı gerektirmemesi için bilinçli tercih.)
+// Known limitation: it resets on restart, so a revoked but unexpired token becomes valid again. Chosen
+// deliberately to avoid a schema change and a Redis dependency.
 type Denylist struct {
 	mu       sync.Mutex
-	entries  map[string]time.Time // jti -> token'ın son geçerlilik zamanı
+	entries  map[string]time.Time // jti -> token expiry
 	watchers map[string][]chan struct{}
 	now      func() time.Time
 }
@@ -27,8 +26,7 @@ func NewDenylist() *Denylist {
 	}
 }
 
-// Revoke: jti'yi, token süresi dolana dek geçersiz sayar ve o jti'yi
-// Watch ile izleyenleri (ör. açık WebSocket bağlantıları) uyandırır.
+// Revoke also wakes up everything watching the jti (e.g. open WebSocket connections).
 func (d *Denylist) Revoke(jti string, expiresAt time.Time) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -40,12 +38,9 @@ func (d *Denylist) Revoke(jti string, expiresAt time.Time) {
 	delete(d.watchers, jti)
 }
 
-// Watch: jti iptal edildiğinde kapanan bir channel döndürür (channel'lar
-// C#'taki bir TaskCompletionSource/CancellationToken gibi "olay oldu" sinyali
-// taşıyabilir; kapanmış channel'dan okumak hemen döner). jti ZATEN iptal
-// edilmişse channel kapalı döner, böylece giriş-kontrol ile Watch arasındaki
-// yarış kapanır. Dönen fonksiyon izlemeyi bırakır; izleyen taraf işi bitince
-// (bağlantı normal kapanınca) çağırmalıdır, yoksa kayıt bellekte kalır.
+// Watch returns a channel that is closed when the jti is revoked; if it already is, the channel comes
+// back closed, which closes the race between the session check and Watch. The returned function must be
+// called when watching ends, or the entry stays in memory.
 func (d *Denylist) Watch(jti string) (<-chan struct{}, func()) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -81,8 +76,7 @@ func (d *Denylist) IsRevoked(jti string) bool {
 	return ok
 }
 
-// Cleanup: süresi dolmuş kayıtları siler (o token'lar zaten süre kontrolünde
-// reddedilir, denylist'te tutmaya gerek kalmaz). Silinen sayıyı döndürür.
+// Cleanup removes expired entries (the expiry check rejects those tokens anyway).
 func (d *Denylist) Cleanup() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -104,7 +98,6 @@ func (d *Denylist) Len() int {
 	return len(d.entries)
 }
 
-// Run: interval aralığıyla Cleanup çağırır; ctx iptal edilince durur.
 func (d *Denylist) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()

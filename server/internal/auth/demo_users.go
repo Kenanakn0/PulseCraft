@@ -12,30 +12,23 @@ import (
 
 const (
 	minPasswordLen   = 8
-	maxPasswordBytes = 72 // bcrypt sadece ilk 72 baytı kullanır
+	maxPasswordBytes = 72 // bcrypt only uses the first 72 bytes
 )
 
-// DemoUser: .env'deki DEMO_USERS değişkeninden gelen bir kullanıcı.
 type DemoUser struct {
 	Email       string
 	Password    string
 	DisplayName string
 }
 
-// ParseDemoUsers: "e-posta:parola:görünen ad;e-posta2:parola2:ad2" biçimini
-// ayrıştırır. Kullanıcılar ';' ile ayrılır; her kayıt İLK İKİ ':' karakterinden
-// bölünür (strings.SplitN ile 3 parça), yani görünen ad ':' içerebilir.
-//
-// Kısıtlar (deploy/.env.example'da da yazılı): e-posta ve parola ':' veya ';'
-// içeremez, görünen ad ';' içeremez. Parola içindeki ':' sessizce yanlış
-// bölünürdü — bu yüzden bu kısıt kullanıcıya belgelenmiştir.
-//
-// Hata mesajlarında parola ASLA yer almaz. Boş girdi hata değildir (kullanıcı yok).
+// ParseDemoUsers parses "email:password:Display name;...". Each entry is split at its FIRST TWO colons,
+// so the display name may contain ':'; e-mail and password cannot contain ':' or ';' (documented in
+// .env.example). Errors never contain the password. Empty input means no users.
 func ParseDemoUsers(raw string) ([]DemoUser, error) {
 	var users []DemoUser
 	seen := make(map[string]bool)
 
-	n := 0 // boş olmayan kayıtların sırası (hata mesajları için)
+	n := 0 // position of the entry, for error messages
 	for _, entry := range strings.Split(raw, ";") {
 		if strings.TrimSpace(entry) == "" {
 			continue
@@ -48,7 +41,7 @@ func ParseDemoUsers(raw string) ([]DemoUser, error) {
 		}
 
 		email := strings.ToLower(strings.TrimSpace(parts[0]))
-		password := parts[1] // olduğu gibi: baştaki/sondaki boşluk parolanın parçasıdır
+		password := parts[1] // not trimmed: surrounding spaces are part of the password
 		display := strings.TrimSpace(parts[2])
 
 		if at := strings.Index(email, "@"); at <= 0 || at == len(email)-1 || strings.ContainsAny(email, " \t") {
@@ -111,11 +104,8 @@ func weakPasswordReason(email, password string) string {
 	return ""
 }
 
-// SeedUsers: demo kullanıcıları users tablosuna ekler ya da günceller.
-// .env kaynak kabul edilir: e-posta zaten varsa parola hash'i ve görünen ad
-// .env'dekiyle değiştirilir. .env'de olmayan kullanıcılara dokunulmaz.
-//
-// ON CONFLICT (lower(email)), şemadaki ux_users_email ifade indeksiyle eşleşir.
+// SeedUsers upserts the users; .env is the source of truth for their password and display name. Users
+// not listed are left alone. ON CONFLICT (lower(email)) matches the ux_users_email expression index.
 func SeedUsers(ctx context.Context, db *pgxpool.Pool, users []DemoUser) error {
 	for _, u := range users {
 		hash, err := bcrypt.GenerateFromPassword([]byte(u.Password), bcrypt.DefaultCost)

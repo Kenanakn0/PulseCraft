@@ -2,11 +2,10 @@ import { request, type APIRequestContext, type Browser, type Page } from '@playw
 import { USER1_STATE, USER2_STATE } from './auth-state'
 import { expect, test } from './fixtures'
 
-// 4.2d: 4.2/4.2a/4.2b/4.2c'nin BÜTÜNÜNÜ, iki AYRI kullanıcı oturumuyla (iki AYRI JWT, iki AYRI
-// WebSocket bağlantısı) kanıtlar. Önceki testlerde "iki sekme" hep AYNI oturumun kopyasıydı; burada
-// Ada ve Bob'un çerezleri baştan başka giriş isteklerinden gelir — sunucunun olayı DOĞRU KULLANICIYA
-// (acknowledged_by) ve BAĞIMSIZ oturumlara dağıttığını, birinin çıkışının diğerini etkilemediğini
-// gösterir (4.0c/4.1d'de tek kullanıcı iki sekmesiyle test edilenin, gerçek çok kullanıcılı hâli).
+// Proves the whole alert workflow with two SEPARATE user sessions (two JWTs, two WebSocket connections).
+// Earlier "two tab" tests shared one session; here Ada's and Bob's cookies come from separate logins, which
+// shows that the server attributes the acknowledgement to the right user, delivers events to independent
+// sessions, and that one user's logout does not affect the other.
 const emailA = process.env.E2E_EMAIL
 const passwordA = process.env.E2E_PASSWORD
 const emailB = process.env.E2E_EMAIL2
@@ -29,7 +28,7 @@ interface Session {
   page: Page
 }
 
-// storageState: setup projesinin yazdığı dosyanın YOLU ya da bu testte yapılan taze girişin durumu.
+// storageState: the path written by the setup project, or the state of a fresh login in this test.
 type StorageState = string | Awaited<ReturnType<typeof loginSession>>
 
 async function openSession(browser: Browser, baseURL: string | undefined, storageState: StorageState): Promise<Session> {
@@ -51,11 +50,11 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
   }) => {
     test.setTimeout(30_000)
 
-    // Paylaşılan oturumlar (setup projesi her kullanıcı için bir kez giriş yaptı).
+    // Shared sessions (the setup project logged each user in once).
     const ada = await openSession(browser, baseURL, USER1_STATE)
     const bob = await openSession(browser, baseURL, USER2_STATE)
 
-    // Öncül: gerçekten İKİ FARKLI kullanıcı girişi (aynı oturumun iki sekmesi değil).
+    // Precondition: really two different users (not two tabs of one session).
     await ada.page.goto('/')
     await bob.page.goto('/')
     const adaName = await ada.page.getByTestId('current-user').textContent()
@@ -67,7 +66,7 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     expect(created.status()).toBe(201)
     const { id: nodeId, api_key: apiKey } = (await created.json()) as { id: string; api_key: string }
 
-    // 4.2c: Ada kuralı ARAYÜZDEN oluşturur (konsol/API değil).
+    // Ada creates the rule through the UI (not the API).
     const ruleName = uniqueName('e2e-2k-kural')
     await ada.page.goto('/alert-rules')
     await ada.page.getByLabel('Ad').fill(ruleName)
@@ -76,11 +75,11 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     await ada.page.getByRole('button', { name: 'Kural ekle' }).click()
     await expect(ada.page.getByTestId('rule-row').filter({ hasText: ruleName })).toBeVisible()
 
-    // Bob önceden alarm panosunu açmış olsun (canlı akışı bekliyor).
+    // Bob already has the alert board open, waiting for the live stream.
     await bob.page.goto('/alerts')
     await expect(bob.page.getByTestId('live-status')).toHaveText('Canlı')
 
-    // Agent gibi bir ölçüm: eşik aşılır, alarm açılır.
+    // A sample like the agent's: the threshold is exceeded and the alert opens.
     const post = await ada.api.post('/api/v1/metrics', {
       headers: { Authorization: `Bearer ${apiKey}` },
       data: {
@@ -91,16 +90,15 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     })
     expect(post.status()).toBe(202)
 
-    // 4.2b: Bob'un panosunda (KENDİ oturumu, KENDİ WebSocket'i) alarm anında görünür.
+    // Bob's board (his own session and WebSocket) shows the alert immediately.
     const bobCard = bob.page.getByTestId('alert-card').filter({ hasText: ruleName })
     await expect(bobCard).toBeVisible({ timeout: 4000 })
     await expect(bobCard.getByRole('link', { name: nodeName })).toHaveAttribute('href', `/nodes/${nodeId}`)
 
-    // Bob incelemeye alır.
     await bobCard.getByRole('button', { name: 'İncelemeye aldım' }).click()
-    await expect(bob.page.getByTestId('alert-card').filter({ hasText: ruleName })).toHaveCount(0) // "Açık"tan düştü
+    await expect(bob.page.getByTestId('alert-card').filter({ hasText: ruleName })).toHaveCount(0)
 
-    // Ada, KENDİ panosunda, Bob'un adıyla "inceliyor" durumunu ANINDA görür (sayfayı hiç yenilemeden).
+    // Ada sees on her own board, without reloading, that Bob is on it.
     await ada.page.goto('/alerts')
     await ada.page.getByRole('tab', { name: /İncelenen/ }).click()
     const adaViewOfCard = ada.page.getByTestId('alert-card').filter({ hasText: ruleName })
@@ -108,15 +106,15 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     await expect(adaViewOfCard).toContainText(bobName!.trim())
     await ada.page.screenshot({ path: shot('40-iki-kullanici-incelenen') })
 
-    // 4.2c: Ada, Kurallar ekranından kuralı DEVRE DIŞI bırakır → alarm çözülür.
+    // Ada disables the rule on the rules page → the alert resolves.
     await ada.page.goto('/alert-rules')
     const adaRuleRow = ada.page.getByTestId('rule-row').filter({ hasText: ruleName })
     await adaRuleRow.getByRole('button', { name: 'Devre dışı bırak' }).click()
-    // İsteğin BİTTİĞİNİ bekle: hemen başka sayfaya gitmek, tarayıcının yarım kalan PUT isteğini iptal etmesine
-    // (kural kapanmaz, alarm çözülmez) yol açar — bu testteki eski zamanlama kararsızlığının nedeniydi.
+    // Wait for the request to FINISH: navigating away immediately makes the browser cancel the pending PUT
+    // (the rule stays enabled, the alert stays open). This caused this test's earlier flakiness.
     await expect(adaRuleRow.getByText('Kapalı')).toBeVisible()
 
-    // Her iki oturumda da ANINDA "Çözülen"e geçer; Bob'un adı (incelemeyi alan) korunur.
+    // Both sessions move it to "Çözülen" at once; Bob stays recorded as the acknowledging user.
     for (const s of [ada, bob]) {
       await s.page.goto('/alerts')
       await s.page.getByRole('tab', { name: /Çözülen/ }).click()
@@ -126,7 +124,7 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     }
     await bob.page.screenshot({ path: shot('41-iki-kullanici-cozulen') })
 
-    // Temizlik: kuralı sil (Bob silsin — sahiplik kısıtı yok, herhangi bir oturumdan silinebilir).
+    // Cleanup: delete the rule (Bob does it: there is no ownership, any session may delete).
     await bob.page.goto('/alert-rules')
     const bobRuleRow = bob.page.getByTestId('rule-row').filter({ hasText: ruleName })
     await bobRuleRow.getByRole('button', { name: 'Sil' }).click()
@@ -143,8 +141,8 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     browser,
     baseURL,
   }) => {
-    // Bob bu testte ÇIKIŞ yapacak: çıkış token'ı (jti) iptal eder. Paylaşılan Bob oturumunu kullanırsak
-    // sonraki testler iptal edilmiş çerezle kalırdı → Bob için TAZE giriş; Ada paylaşılan oturumu kullanır.
+    // Bob LOGS OUT in this test, which revokes his token (jti). Using the shared Bob session would leave
+    // later tests with a revoked cookie, so Bob logs in fresh; Ada uses the shared session.
     const ada = await openSession(browser, baseURL, USER1_STATE)
     const bob = await openSession(browser, baseURL, await loginSession(baseURL, emailB!, passwordB!))
 
@@ -156,7 +154,7 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     await bob.page.getByRole('button', { name: 'Çıkış' }).click()
     await expect(bob.page).toHaveURL(/\/login/)
 
-    // Bob'un çıkışı, sunucuda YALNIZCA kendi jti'sini iptal eder; Ada'nın bağlantısı ve oturumu sürer.
+    // Bob's logout revokes only his own jti; Ada's connection and session continue.
     await ada.page.waitForTimeout(1000)
     await expect(ada.page).not.toHaveURL(/\/login/)
     await expect(ada.page.getByTestId('live-status')).toHaveText('Canlı')

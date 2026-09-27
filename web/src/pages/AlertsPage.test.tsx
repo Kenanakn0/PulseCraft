@@ -189,7 +189,7 @@ describe('AlertsPage', () => {
 
     const button = await screen.findByRole('button', { name: 'İncelemeye aldım' })
     await user.click(button)
-    await user.click(screen.getByRole('button', { name: 'Alınıyor…' })) // disabled: tıklama etkisiz
+    await user.click(screen.getByRole('button', { name: 'Alınıyor…' })) // disabled: the click has no effect
 
     expect(screen.getByRole('button', { name: 'Alınıyor…' })).toBeDisabled()
     expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1)
@@ -207,7 +207,7 @@ describe('AlertsPage', () => {
     rows = [makeAlert({ id: 1, status: 'acknowledged', acknowledged_by: 'Bob' })]
     await user.click(button)
 
-    // Liste yenilenince kart "İncelenen" sekmesine geçer; mesaj kart kalktığı için görünmeyebilir.
+    // After the refresh the card moves to "İncelenen"; the message may vanish with the card.
     await waitFor(() => expect(screen.getByRole('tab', { name: 'İncelenen 1' })).toBeInTheDocument())
     await user.click(screen.getByRole('tab', { name: /İncelenen/ }))
     expect(screen.getByTestId('alert-card')).toHaveTextContent('Bob')
@@ -261,7 +261,7 @@ describe('AlertsPage', () => {
     stubFetch(alertRoutes(sample))
     renderPage()
     await screen.findAllByTestId('alert-card')
-    expect(screen.getByTestId('open-alerts-badge')).toHaveTextContent('2') // 2 açık; incelenen/çözülen sayılmaz
+    expect(screen.getByTestId('open-alerts-badge')).toHaveTextContent('2') // 2 open; acknowledged/resolved do not count
   })
 
   it('yükleme hatasında mesaj ve "Yeniden dene" gösterir', async () => {

@@ -88,26 +88,26 @@ describe('AlertsProvider', () => {
     )
     expect(alertsOf(result.current.state)[0]).toMatchObject({ status: 'acknowledged', acknowledged_by: 'Bob' })
 
-    await send(alertEventPayload()) // geç gelen eski "opened"
+    await send(alertEventPayload()) // a late, stale "opened"
     expect(alertsOf(result.current.state)[0]).toMatchObject({ status: 'acknowledged', acknowledged_by: 'Bob' })
   })
 
   it('REST isteği SÜRERKEN gelen olay kaybolmaz ve eski anlık görüntü onu geri almaz', async () => {
     let release: (() => void) | undefined
     const gate = new Promise<void>((resolve) => (release = resolve))
-    const routes = alertRoutes(() => [makeAlert({ id: 1 })]) // sunucu bu isteği "açık" görüyordu
+    const routes = alertRoutes(() => [makeAlert({ id: 1 })]) // the server still saw this one as open
     stubFetch({
       ...routes,
       'GET /api/v1/alerts?status=open': async () => {
-        await gate // yanıt geciktirilir
+        await gate // the response is delayed
         return jsonResponse([makeAlert({ id: 1 })])
       },
     })
     const { result } = renderHook(() => useAlerts(), { wrapper: makeWrapper(60_000) })
-    await open() // yükleme sürerken bağlantı açıldı
+    await open() // connection opened while loading
 
     await send(alertEventPayload({ event: 'acknowledged', status: 'acknowledged', acknowledged_by: 'Bob' }))
-    await send(alertEventPayload({ id: 2 })) // yeni alarm da istek sırasında geldi
+    await send(alertEventPayload({ id: 2 })) // a new alert also arrived during the request
     release?.()
 
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
@@ -133,7 +133,7 @@ describe('AlertsProvider', () => {
     const before = alertCalls(calls)
     const readyAt = seen.length
 
-    rows = [makeAlert({ id: 1, status: 'resolved', resolved_at: '2030-01-01T10:10:00Z' })] // kopukken çözüldü
+    rows = [makeAlert({ id: 1, status: 'resolved', resolved_at: '2030-01-01T10:10:00Z' })] // resolved while disconnected
     const dropped = liveSocket()
     await act(() => dropped.drop(1006))
     await waitFor(() => expect(liveSocket()).not.toBe(dropped), { timeout: 2000 })
@@ -154,7 +154,8 @@ describe('AlertsProvider', () => {
     await send({ type: 'rule', event: 'deleted', rule_id: 10 })
     expect(alertsOf(result.current.state).map((a) => a.id)).toEqual([2])
 
-    // Sunucu eski bir yanıtı (kural henüz görünüyormuş gibi) verse bile silinen kuralın alarmı gösterilmez.
+    // Even if the server returns a stale response (as if the rule still existed), the deleted rule's alert
+    // is not shown.
     rows = [makeAlert({ id: 1, rule_id: 10 }), makeAlert({ id: 2, rule_id: 11 })]
     act(() => result.current.reload())
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
@@ -181,11 +182,11 @@ describe('AlertsProvider', () => {
   it('güvenlik ağı: periyodik eşitleme, olay kaybolmuşsa (Redis kesintisi) listeyi düzeltir', async () => {
     let rows: AlertRow[] = [makeAlert({ id: 1 })]
     stubFetch(alertRoutes(() => rows))
-    const { result } = renderHook(() => useAlerts(), { wrapper: makeWrapper(60) }) // 60 ms
+    const { result } = renderHook(() => useAlerts(), { wrapper: makeWrapper(60) })
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     await open()
 
-    // "resolved" olayı hiç ulaşmadı; sunucuda alarm çözüldü ve yeni bir alarm açıldı.
+    // The "resolved" event never arrived; on the server the alert was resolved and a new one opened.
     rows = [makeAlert({ id: 1, status: 'resolved', resolved_at: '2030-01-01T10:10:00Z' }), makeAlert({ id: 2 })]
 
     await waitFor(() => expect(alertsOf(result.current.state).map((a) => `${a.id}:${a.status}`).sort()).toEqual(['1:resolved', '2:open']))
@@ -198,10 +199,11 @@ describe('AlertsProvider', () => {
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     await open()
 
-    // Olayla bir alarm öğrenildi (id 9); sunucuda böyle bir alarm yok (ör. kuralı, "silindi" olayı kaçırılırken silindi).
+    // An alert learned from an event (id 9) does not exist on the server (e.g. its rule was deleted while the
+    // "deleted" event was missed).
     await send(alertEventPayload({ id: 9 }))
 
-    // (Satırın kısa süre görünmesi yoklamayla yarışır; kalıcı olarak KALMAMASI asıl doğrulanan davranıştır.)
+    // (The row may show briefly while racing the poll; what is verified is that it does not STAY.)
     await waitFor(() => expect(alertsOf(result.current.state).map((a) => a.id)).toEqual([1]))
   })
 
@@ -258,7 +260,7 @@ describe('acknowledge', () => {
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
     const before = alertCalls(calls)
 
-    rows = [makeAlert({ id: 1, status: 'acknowledged', acknowledged_by: 'Bob' })] // Bob önce davrandı
+    rows = [makeAlert({ id: 1, status: 'acknowledged', acknowledged_by: 'Bob' })] // Bob acted first
     let outcome: { kind: string; message?: string } | undefined
     await act(async () => {
       outcome = await result.current.acknowledge(1)

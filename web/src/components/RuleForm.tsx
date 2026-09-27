@@ -14,23 +14,21 @@ import {
 } from '../rules/form'
 
 interface RuleFormProps {
-  /** Node seçimi için; henüz yüklenmediyse boş liste (yalnızca "Tüm sunucular" görünür). */
+  /** For the server selector; an empty list until loaded (only "Tüm sunucular" is shown). */
   nodes: readonly NodeSummary[]
   onCreated: () => void
 }
 
-/** Yeni alarm kuralı ekleme formu (mockup: "Yeni kural" kartı). */
 export function RuleForm({ nodes, onCreated }: RuleFormProps) {
   const [values, setValues] = useState<RuleFormValues>(emptyRuleForm)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Form 7 alanlı bir ızgara: hata en altta, düğmenin hemen üstünde belirir. Formun konumuna göre
-  // görünür alanın dışında kalabilir; hata her ayarlandığında görünüme kaydırılır ve odak alır
-  // (ekran okuyucu hemen okur) — "gönderdim ama hiçbir şey olmadı" hissi bırakmaması için.
+  // The error appears at the bottom of a 7-field grid and can be outside the viewport. Whenever it is set it
+  // is scrolled into view and focused (screen readers announce it), so a submit never seems to do nothing.
   const errorRef = useRef<HTMLParagraphElement>(null)
   useEffect(() => {
-    // jsdom (testler) scrollIntoView'ı uygulamaz; typeof kontrolü test ortamında hatasız geçmesini sağlar.
+    // jsdom (tests) has no scrollIntoView.
     if (error !== null && typeof errorRef.current?.scrollIntoView === 'function') {
       errorRef.current.scrollIntoView({ block: 'nearest' })
     }

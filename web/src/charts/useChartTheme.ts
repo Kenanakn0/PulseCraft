@@ -3,9 +3,9 @@ import { readChartTheme, type ChartTheme } from './theme'
 import { useColorScheme } from './useColorScheme'
 
 /**
- * Grafiklerin renk teması. Tarayıcının koyu/açık ayarı değişince yeniden okunur.
- * (readChartTheme, `scheme`'e doğrudan bakmaz ama sonucu ona bağlıdır: CSS değişkenleri o ayara göre
- * değişir. Bu yüzden `scheme` bilerek bağımlılık listesindedir; lint kuralı bunu "gereksiz" sanar.)
+ * Chart colour theme, re-read when the browser's dark/light setting changes. readChartTheme does not use
+ * `scheme` directly, but its result depends on it through the CSS variables, so `scheme` is a deliberate
+ * dependency even though the lint rule calls it unnecessary.
  */
 export function useChartTheme(): ChartTheme {
   const scheme = useColorScheme()

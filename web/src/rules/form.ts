@@ -1,18 +1,20 @@
 import type { RulePayload } from '../api/rules'
 import type { AlertSeverity } from '../api/types'
 
-/** Sunucunun kabul ettiği metrikler, mockup'taki sırayla (bkz. docs/decisions.md "Alerting": yalnızca CPU/RAM/Disk). */
+/**
+ * Metrics accepted by the server, in the mockup's order (CPU/RAM/Disk only; see docs/decisions.md "Alerting").
+ */
 export const METRIC_OPTIONS = ['cpu_percent', 'mem_percent', 'disk_percent'] as const
 export const OPERATOR_OPTIONS = ['>', '>=', '<', '<='] as const
 export const SEVERITY_OPTIONS: AlertSeverity[] = ['critical', 'warning', 'info']
 
 /**
- * Form alanları METİN olarak tutulur (kontrollü `<input>`ların doğal tipi): kullanıcı "9" yazarken
- * "90" olana kadar geçici olarak geçersiz bir sayı görünmemeli; doğrulama yalnızca gönderirken çalışır.
+ * Form fields are kept as TEXT (the natural type of controlled inputs): while typing "9" on the way to
+ * "90" no temporary invalid number should appear; validation runs only on submit.
  */
 export interface RuleFormValues {
   name: string
-  /** '' = tüm sunucular. */
+  /** '' = all servers. */
   nodeId: string
   metric: string
   operator: string
@@ -31,7 +33,7 @@ export const emptyRuleForm: RuleFormValues = {
   severity: 'warning',
 }
 
-/** Girdiyi doğrular; sorun varsa Türkçe hata mesajı, yoksa `null` döner. */
+/** Validates the input; returns a Turkish error message or `null`. */
 export function validateRuleForm(values: RuleFormValues): string | null {
   if (values.name.trim() === '') return 'Kural adı zorunlu.'
 
@@ -46,7 +48,7 @@ export function validateRuleForm(values: RuleFormValues): string | null {
   return null
 }
 
-/** Doğrulanmış form değerlerini sunucuya gönderilecek gövdeye çevirir. */
+/** Turns validated form values into the request body. */
 export function toRulePayload(values: RuleFormValues, enabled = true): RulePayload {
   return {
     name: values.name.trim(),

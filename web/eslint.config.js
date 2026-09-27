@@ -11,10 +11,8 @@ export default tseslint.config(
     extends: [
       js.configs.recommended,
       ...tseslint.configs.recommended,
-      // Hooks kuralları: useEffect bağımlılık dizisi eksikse ya da hook koşullu çağrılırsa
-      // uyarır (React öğrenirken en sık yapılan hataları yakalar).
       reactHooks.configs.flat.recommended,
-      // Hızlı yenileme (HMR) için: bileşen dosyaları bileşen dışında bir şey dışa aktarmamalı.
+      // Fast refresh (HMR): component files must not export anything but components.
       reactRefresh.configs.vite,
     ],
     languageOptions: {

@@ -29,7 +29,7 @@ func TestCrossOriginProtection(t *testing.T) {
 			header: map[string]string{"Sec-Fetch-Site": "cross-site"}, wantCode: http.StatusForbidden,
 		},
 		{
-			// SameSite=Strict bu isteğe cookie'yi EKLER; koruma yine de reddetmeli.
+			// SameSite=Strict DOES attach the cookie to this request; the protection must still reject it.
 			name: "aynı sitedeki başka origin'den oturumlu ack", method: http.MethodPost, path: "/api/v1/alerts/1/ack",
 			header: map[string]string{"Sec-Fetch-Site": "same-site"}, cookie: session, wantCode: http.StatusForbidden,
 		},
@@ -46,7 +46,7 @@ func TestCrossOriginProtection(t *testing.T) {
 			header: map[string]string{"Origin": "http://localhost:8080"}, wantCode: http.StatusBadRequest,
 		},
 		{
-			// Agent tarayıcı başlıkları göndermez: kendi (API key) kimlik doğrulamasına ulaşmalı.
+			// The agent sends no browser headers and must reach its own (API key) authentication.
 			name: "agent ölçüm gönderimi", method: http.MethodPost, path: "/api/v1/metrics", body: `{"samples":[]}`,
 			header: map[string]string{"User-Agent": "Go-http-client/1.1"}, wantCode: http.StatusUnauthorized,
 		},

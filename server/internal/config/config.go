@@ -9,38 +9,29 @@ import (
 	"unicode/utf8"
 )
 
-// minJWTSecretLen: JWT imzalama anahtarının en az karakter sayısı.
 const minJWTSecretLen = 32
 
-// Config: server'ın çalışması için gereken tüm ayarlar.
 type Config struct {
 	ListenAddr  string
 	DatabaseURL string
 	RedisURL    string
 
-	// JWTSecret: oturum token'larını imzalayan gizli anahtar. Varsayılanı YOKTUR:
-	// tanımlı değilse veya kısaysa Load hata döner (fail-fast).
+	// JWTSecret has no default: Load fails if it is missing or too short.
 	JWTSecret string
 
-	// DemoUsers: "e-posta:parola:görünen ad;..." biçiminde ham metin
-	// (ayrıştırma auth.ParseDemoUsers'ta). Boş olabilir.
+	// DemoUsers is parsed by auth.ParseDemoUsers.
 	DemoUsers string
 
-	// CookieSecure: oturum cookie'sine Secure bayrağı konur (yalnızca HTTPS
-	// üzerinden gönderilir). Yerel HTTP geliştirmede false, HTTPS'te true olmalı.
+	// CookieSecure must be true behind HTTPS; false for local HTTP development.
 	CookieSecure bool
 
-	// TrustedProxies: virgülle ayrılmış CIDR listesi (ham metin; ayrıştırma
-	// clientip.ParseTrustedProxies'te). Sadece bu adreslerden gelen isteklerde
-	// X-Forwarded-For okunur. Boş = hiçbir proxy'ye güvenme.
+	// TrustedProxies is a comma-separated CIDR list (see clientip.ParseTrustedProxies). Empty trusts
+	// no proxy.
 	TrustedProxies string
 }
 
-// Load: ortam değişkenlerinden ayarları okur, verilmemişse varsayılan
-// kullanır. DatabaseURL'in varsayılanı deploy/.env.example'daki değerlerle
-// eşleşir — docker compose ile ayağa kaldırılan DB'ye ek ayar yapmadan
-// bağlanabilmek için. Geçersiz konfigürasyonda hata döner; server bu durumda
-// hiç başlamamalıdır.
+// Load reads the settings from the environment. An invalid configuration returns an error and the server
+// must not start.
 func Load() (Config, error) {
 	cfg := Config{
 		ListenAddr:  envOrDefault("PULSECRAFT_LISTEN_ADDR", ":8080"),
@@ -52,7 +43,7 @@ func Load() (Config, error) {
 		TrustedProxies: os.Getenv("TRUSTED_PROXIES"),
 	}
 
-	// Hata mesajı sırrın kendisini ASLA içermez, sadece uzunluğunu söyler.
+	// The error reports the length, never the secret.
 	if n := utf8.RuneCountInString(cfg.JWTSecret); n < minJWTSecretLen {
 		return Config{}, fmt.Errorf("JWT_SECRET tanımlı değil veya çok kısa (%d karakter); en az %d karakter gerekli", n, minJWTSecretLen)
 	}

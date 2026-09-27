@@ -6,8 +6,8 @@ import { jsonResponse, stubFetch, textResponse } from '../test/fetchStub'
 import { aggPoint, aggResponse, makeNode, rawPoint, rawResponse } from '../test/fixtures'
 import NodeDetailPage from './NodeDetailPage'
 
-// jsdom'da canvas yok: grafik bileşenlerini, aldıkları props'u kaydeden sahtelerle değiştiriyoruz.
-// (Grafiğin GERÇEK çizimi Playwright testinde, gerçek tarayıcıda doğrulanır.)
+// jsdom has no canvas: the chart components are replaced by fakes that record their props. (The real
+// drawing is verified by Playwright in a real browser.)
 const charts = vi.hoisted(() => ({
   lines: [] as { data: { datasets: { label: string; data: unknown[] }[] }; options: unknown }[],
   doughnuts: [] as { data: { datasets: { data: number[] }[] } }[],
@@ -192,7 +192,7 @@ describe('NodeDetailPage', () => {
     const user = userEvent.setup()
 
     expect(await screen.findByText(/Ölçümler alınamadı/)).toBeInTheDocument()
-    // Sunucu bilgisi (üst kısım) hatadan etkilenmez.
+    // The server header is unaffected by the error.
     expect(screen.getByRole('heading', { level: 1, name: 'web-01' })).toBeInTheDocument()
 
     fail = false
@@ -241,7 +241,7 @@ describe('NodeDetailPage: sunucuyu silme', () => {
     await user.type(screen.getByLabelText('Sunucu adı'), 'web-0')
     expect(confirm).toBeDisabled()
     await user.type(screen.getByLabelText('Sunucu adı'), '1 ')
-    expect(confirm).toBeDisabled() // sondaki boşluk: birebir değil
+    expect(confirm).toBeDisabled() // trailing space: not an exact match
     await user.clear(screen.getByLabelText('Sunucu adı'))
     await user.type(screen.getByLabelText('Sunucu adı'), 'web-01')
     expect(confirm).toBeEnabled()

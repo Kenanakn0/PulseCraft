@@ -1,14 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// DUMAN TESTİ: Vite geliştirme sunucusuna DEĞİL, docker compose'un sunduğu GERÇEK yığına (nginx + derlenmiş
-// React + server) karşı çalışır. e2e/ testlerinden farkı: burada derlenmiş dosyalar, nginx başlıkları
-// (CSP, önbellek, gzip), SPA yönlendirmesi ve nginx üzerinden WebSocket doğrulanır.
+// SMOKE TEST: runs against the real stack served by docker compose (nginx + built React + server), not
+// the Vite dev server. Unlike e2e/ it checks the built files, nginx headers (CSP, caching, gzip), SPA
+// routing and the WebSocket through nginx.
 //
-//   $env:SMOKE_BASE_URL="http://localhost:8080"; $env:E2E_EMAIL="..."; $env:E2E_PASSWORD="..."
+//   Environment: SMOKE_BASE_URL (e.g. http://localhost:8080), E2E_EMAIL, E2E_PASSWORD
 //   npm run smoke
 //
-// DİKKAT: bir test node oluşturur ve ölçüm gönderir. Gerçek verinizi kirletmemek için sahte kimlik
-// bilgili bir PROVA yığınına karşı çalıştırın.
+// WARNING: it creates a node and posts samples. Run it against a throw-away stack with fake credentials.
 export default defineConfig({
   testDir: './smoke',
   fullyParallel: false,

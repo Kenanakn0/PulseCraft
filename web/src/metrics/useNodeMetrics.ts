@@ -11,9 +11,9 @@ export type MetricsState =
   | {
       status: 'ready'
       points: ChartPoint[]
-      /** Verinin hangi tablodan geldiği: ham ölçüm mü, 1 dakikalık özet mi. */
+      /** Which table the data came from: raw samples or the 1-minute aggregate. */
       resolution: 'raw' | '1m'
-      /** Grafiğin x ekseni sınırları (ms). SUNUCUnun döndürdüğü pencere: tarayıcı saatine bağlı değil. */
+      /** x-axis bounds (ms): the window returned by the SERVER, independent of the browser clock. */
       from: number
       to: number
       refreshError: string | null
@@ -21,15 +21,13 @@ export type MetricsState =
   | { status: 'error'; message: string }
 
 /**
- * Bir sunucunun seçili aralıktaki geçmiş ölçümlerini yükler ve aralığa uygun sıklıkta yeniler.
- *
- * `nodeId` ya da `rangeId` değişince bu hook'u kullanan bileşene DEĞİŞEN BİR `key` verilmelidir
- * (bkz. usePolledResource): bileşen sıfırdan kurulur, yükleme durumu temiz başlar.
+ * Loads a server's history for the selected range and refreshes it at a range-appropriate interval. Give
+ * the component a new `key` when `nodeId` or `rangeId` changes (see usePolledResource).
  */
 export function useNodeMetrics(nodeId: string, rangeId: RangeId) {
   const range = getRange(rangeId)
 
-  // Canlı noktalar ayrı bir tamponda birikir; REST verisiyle GÖSTERİMDE birleştirilir (aşağıda).
+  // Live points collect in their own buffer and are merged with the REST data at render time (below).
   const [livePoints, setLivePoints] = useState<readonly ChartPoint[]>([])
   const { epoch } = useRealtime()
   useRealtimeEvents((event) => {
@@ -49,13 +47,13 @@ export function useNodeMetrics(nodeId: string, rangeId: RangeId) {
     },
     range.pollMs,
     'Ölçümler',
-    epoch, // WebSocket yeniden bağlanınca geçmiş REST'ten yeniden çekilir (kopmada kaçan noktalar tamamlanır)
+    epoch, // after a WebSocket reconnect the history is refetched (fills points missed while disconnected)
   )
 
   const metricsState = useMemo<MetricsState>(() => {
     if (state.status !== 'ready') return state
     const { points, resolution, from, to } = state.data
-    // Canlı noktalar yalnızca ham veride (15 dk / 1 sa) anlamlı; dakikalık özet grafiğine karıştırılmaz.
+    // Live points only make sense for raw ranges (15 min / 1 h); they are never mixed into the aggregate chart.
     const merged = resolution === 'raw' ? mergeLivePoints(points, from, to, livePoints) : { points, from, to }
     return { status: 'ready', ...merged, resolution, refreshError: state.refreshError }
   }, [state, livePoints])

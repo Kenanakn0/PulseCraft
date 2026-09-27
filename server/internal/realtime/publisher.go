@@ -10,11 +10,10 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// publishTimeout: tek bir yayının Redis'te en fazla bekleyeceği süre.
 const publishTimeout = 2 * time.Second
 
-// queueSize: bekleyen yayın işi sınırı. Redis yavaşlarsa/kesilirse kuyruk
-// dolar ve yeni olaylar atılır; bellek sınırsız büyümez.
+// queueSize bounds pending publishes: if Redis is slow or down, new events are dropped instead of
+// growing memory without limit.
 const queueSize = 1024
 
 type job struct {
@@ -22,12 +21,9 @@ type job struct {
 	payloads [][]byte
 }
 
-// Publisher: olayları Redis kanallarına yayınlar. Yayın istek yolunda
-// BEKLENMEZ: PublishX çağrıları işi kuyruğa atıp döner, tek bir worker
-// goroutine (Run) sırayla Redis'e yazar. Böylece Redis kesildiğinde HTTP
-// istekleri yavaşlamaz — aksi halde agent zaman aşımına uğrayıp aynı batch'i
-// yeniden gönderir ve metrics tablosunda mükerrer satır oluşurdu.
-// Canlı yayın "en iyi çaba"dır: kesintide olaylar kaybolur, asıl veri (DB) etkilenmez.
+// Publisher never makes the request path wait for Redis: PublishX queues the event and a single worker
+// (Run) writes to Redis. When publishing was synchronous, a Redis outage slowed ingest enough for agents
+// to time out and re-send batches. Live delivery is best effort; stored data is unaffected.
 type Publisher struct {
 	rdb     *redis.Client
 	queue   chan job
@@ -38,7 +34,6 @@ func NewPublisher(rdb *redis.Client) *Publisher {
 	return &Publisher{rdb: rdb, queue: make(chan job, queueSize)}
 }
 
-// Run: ctx iptal edilene kadar kuyruğu boşaltıp Redis'e yazar.
 func (p *Publisher) Run(ctx context.Context) {
 	for {
 		select {
@@ -54,8 +49,7 @@ func (p *Publisher) send(ctx context.Context, j job) {
 	ctx, cancel := context.WithTimeout(ctx, publishTimeout)
 	defer cancel()
 
-	// Pipeline: birden çok mesaj tek ağ gidiş-dönüşüyle gider (C#'ta
-	// StackExchange.Redis'in IBatch'ine benzer).
+	// A pipeline sends several messages in one round trip.
 	pipe := p.rdb.Pipeline()
 	for _, payload := range j.payloads {
 		pipe.Publish(ctx, j.channel, payload)
@@ -69,7 +63,7 @@ func (p *Publisher) enqueue(j job) {
 	select {
 	case p.queue <- j:
 	default:
-		// Kuyruk dolu: log gürültüsü olmasın diye her 100 atılışta bir uyar.
+		// Queue full: warn only every 100 drops to keep the log readable.
 		if n := p.dropped.Add(1); n%100 == 1 {
 			slog.Warn("yayın kuyruğu dolu, olay atıldı", "atilan_toplam", n)
 		}
@@ -102,7 +96,6 @@ func (p *Publisher) PublishAlert(ev AlertEvent) {
 	p.enqueue(job{channel: ChannelAlerts, payloads: [][]byte{payload}})
 }
 
-// PublishRuleDeleted: bir alarm kuralı silindiğinde istemcilere haber verir (bkz. RuleEvent).
 func (p *Publisher) PublishRuleDeleted(ruleID int64) {
 	payload, err := json.Marshal(RuleEvent{Type: "rule", Event: "deleted", RuleID: ruleID})
 	if err != nil {
@@ -112,7 +105,6 @@ func (p *Publisher) PublishRuleDeleted(ruleID int64) {
 	p.enqueue(job{channel: ChannelAlerts, payloads: [][]byte{payload}})
 }
 
-// PublishNodeDeleted: bir sunucu silindiğinde istemcilere haber verir (bkz. NodeEvent).
 func (p *Publisher) PublishNodeDeleted(nodeID string) {
 	payload, err := json.Marshal(NodeEvent{Type: "node", Event: "deleted", NodeID: nodeID})
 	if err != nil {

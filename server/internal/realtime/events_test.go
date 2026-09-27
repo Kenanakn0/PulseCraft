@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// WS istemcilerine giden alarm olayı, "incelemeye alan" kullanıcıyı taşımalı;
-// alan yalnızca acknowledged olayında dolu olduğu için diğerlerinde JSON'da yer almamalı.
+// The acknowledging user must be present on acknowledged events and absent from the JSON otherwise.
 func TestAlertEvent_AcknowledgedByInJSON(t *testing.T) {
 	acked, err := json.Marshal(AlertEvent{Type: "alert", Event: "acknowledged", AlertID: 1, AcknowledgedBy: "Ada Test"})
 	if err != nil {

@@ -11,10 +11,8 @@ import (
 	"time"
 )
 
-// Bu dosyadaki testler de alerts_integration_test.go'daki gibi GERÇEK DB + Redis ister; ortam değişkenleri
-// yoksa atlanır (bkz. newIntegration).
+// Like alerts_integration_test.go, these need a real database and Redis (see newIntegration).
 
-// createNodeViaAPI: POST /api/v1/nodes ile (gerçek anahtar üretilerek) node oluşturur.
 func (c *integration) createNodeViaAPI(name string) (id, apiKey string) {
 	c.t.Helper()
 	var resp createNodeResponse
@@ -23,7 +21,7 @@ func (c *integration) createNodeViaAPI(name string) (id, apiKey string) {
 	return resp.ID, resp.APIKey
 }
 
-// ingest: agent gibi (oturum çerezi OLMADAN, yalnızca Bearer anahtarla) tek ölçüm gönderir; HTTP kodunu döndürür.
+// ingest sends one sample like the agent does: no session cookie, only the Bearer key.
 func (c *integration) ingest(apiKey string, cpu float64) int {
 	c.t.Helper()
 	body, _ := json.Marshal(map[string]any{"samples": []map[string]any{{
@@ -66,10 +64,9 @@ func TestIntegration_DeleteNode_ResolvesAlertsCascadesAndAnnounces(t *testing.T)
 	c.sample(nodeB, 50)
 	c.next(forNode(nodeB, "opened"))
 
-	// Silme
 	c.mustJSON(c.request(http.MethodDelete, "/api/v1/nodes/"+nodeA, nil), http.StatusNoContent, nil)
 
-	// Olay sırası: A'nın iki aktif alarmı "resolved" → A'ya özel kural "rule deleted" → "node deleted".
+	// Event order: A's two active alerts resolved → A's own rule deleted → node deleted.
 	resolved := map[float64]bool{}
 	for len(resolved) < 2 {
 		ev := c.next(forNode(nodeA, "resolved"))
@@ -86,12 +83,12 @@ func TestIntegration_DeleteNode_ResolvesAlertsCascadesAndAnnounces(t *testing.T)
 	if nodeEv["event"] != "deleted" || nodeEv["node_id"] != nodeA {
 		t.Errorf("node deleted olayı yanlış: %v", nodeEv)
 	}
-	// B'nin alarmı etkilenmedi; genel kural için "rule deleted" yayınlanmadı.
+	// B's alert is untouched; no "rule deleted" for the global rule.
 	c.noEvent(func(ev map[string]any) bool {
 		return ev["node_id"] == nodeB || (ev["type"] == "rule" && ev["rule_id"] == float64(global.ID))
 	})
 
-	// Cascade: A'nın metrikleri, alarmları ve A'ya özel kuralı gitti; genel kural ve B'nin alarmı duruyor.
+	// Cascade: A's metrics, alerts and own rule are gone; the global rule and B's alert remain.
 	if n := c.count(`SELECT count(*) FROM nodes WHERE id = $1`, nodeA); n != 0 {
 		t.Errorf("node silinmedi")
 	}
@@ -111,20 +108,17 @@ func TestIntegration_DeleteNode_ResolvesAlertsCascadesAndAnnounces(t *testing.T)
 		t.Errorf("B'nin alarmı açık kalmalıydı: %v", got)
 	}
 
-	// Silinen sunucunun anahtarı artık geçersiz.
 	if code := c.ingest(keyA, 50); code != http.StatusUnauthorized {
 		t.Errorf("silinen sunucunun anahtarıyla ölçüm 401 olmalı, %d", code)
 	}
 
-	// Tekrar silme 404 ve olay yok; geçersiz kimlik 400.
 	c.mustJSON(c.request(http.MethodDelete, "/api/v1/nodes/"+nodeA, nil), http.StatusNotFound, nil)
 	c.noEvent(func(ev map[string]any) bool { return ev["type"] == "node" })
 	c.mustJSON(c.request(http.MethodDelete, "/api/v1/nodes/gecersiz-kimlik", nil), http.StatusBadRequest, nil)
 }
 
-// Süreli kuralda (duration_seconds > 0) henüz alarm açmamış eşik aşımı bellekte tutulur; sunucu silinip
-// AYNI kimlik bir daha görülmeyeceği için sorun olmaz, ama motor belleği yine de temizlenmeli. Burada
-// davranışsal olarak: silmeden sonra başka sunucunun süreli ihlali normal açılır (motor bozulmadı).
+// A breach that has not opened an alert yet is kept in memory. Behaviourally: after deleting a node,
+// another node's timed breach still opens normally (the engine is not broken).
 func TestIntegration_DeleteNode_EngineKeepsWorkingForOtherNodes(t *testing.T) {
 	c := newIntegration(t)
 	nodeA, _ := c.createNodeViaAPI("it-node-sureli-silinecek")
@@ -161,6 +155,6 @@ func TestIntegration_CreateNode_NameIsTrimmedAndValidated(t *testing.T) {
 			t.Errorf("ad %q için 400 bekleniyordu, %d", bad, rec.Code)
 		}
 	}
-	// Tam 100 karakter (çok baytlı) kabul edilir.
+	// Exactly 100 characters (multi-byte) is accepted.
 	c.createNodeViaAPI(strings.Repeat("ş", 100))
 }

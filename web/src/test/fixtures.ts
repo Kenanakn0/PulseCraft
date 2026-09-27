@@ -1,6 +1,6 @@
 import type { AggMetricPoint, AlertRow, AlertRule, MetricsRangeResponse, NodeSummary, RawMetricPoint } from '../api/types'
 
-/** Testlerde kullanılan örnek sunucu; `overrides` ile alanlar değiştirilir. */
+/** Sample server for tests; `overrides` replaces fields. */
 export function makeNode(overrides: Partial<NodeSummary> = {}): NodeSummary {
   return {
     id: 'node-1',
@@ -61,7 +61,7 @@ export function aggResponse(points: AggMetricPoint[]): MetricsRangeResponse {
   return { resolution: '1m', from: '2030-01-01T00:00:00Z', to: '2030-01-01T06:00:00Z', points }
 }
 
-/** Testlerde kullanılan örnek alarm satırı (`GET /alerts` biçimi). */
+/** Sample alert row for tests (GET /alerts shape). */
 export function makeAlert(overrides: Partial<AlertRow> = {}): AlertRow {
   return {
     id: 1,
@@ -83,18 +83,18 @@ export function makeAlert(overrides: Partial<AlertRow> = {}): AlertRow {
   }
 }
 
-/** Sunucunun WebSocket'e yayınladığı alarm olayı (satırın tüm alanları + `type`/`event`/`alert_id`). */
+/** The alert event the server broadcasts (all row fields + `type`/`event`/`alert_id`). */
 export function alertEventPayload(overrides: Partial<AlertRow> & { event?: string } = {}) {
   const { event = 'opened', ...rowOverrides } = overrides
   const { id, ...row } = makeAlert(rowOverrides)
   const statusEvent = event
   const payload: Record<string, unknown> = { type: 'alert', event: statusEvent, alert_id: id, ...row }
-  // Sunucu, alanı yalnızca doluyken gönderir (`omitempty`).
+  // The server sends the field only when set (`omitempty`).
   if (row.acknowledged_by === null) delete payload.acknowledged_by
   return payload
 }
 
-/** Testlerde kullanılan örnek alarm kuralı. */
+/** Sample alert rule for tests. */
 export function makeRule(overrides: Partial<AlertRule> = {}): AlertRule {
   return {
     id: 1,

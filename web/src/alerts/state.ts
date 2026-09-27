@@ -2,28 +2,28 @@ import type { AlertRow, AlertStatus } from '../api/types'
 import type { AlertEvent } from '../realtime/events'
 
 /**
- * Alarm durumları tek yönlü bir merdiven oluşturur: open → acknowledged → resolved. Olaylar geç,
- * tekrarlı ya da sırasız gelebildiği için (bkz. docs/decisions.md "Real-time delivery") bir alarm
- * ASLA daha düşük bir basamağa geri alınmaz: yalnızca aynı ya da daha yüksek basamaktaki bilgi uygulanır.
+ * Alert statuses form a one-way ladder: open → acknowledged → resolved. Events can arrive late, repeated
+ * or out of order (see docs/decisions.md "Real-time delivery"), so an alert NEVER moves down: only
+ * information at the same or a higher step is applied.
  */
 export const STATUS_RANK: Record<AlertStatus, number> = { open: 0, acknowledged: 1, resolved: 2 }
 
-/** Olay akışından öğrenilen bir satır ve onu öğrendiğimiz sıra numarası. */
+/** A row learned from the event stream and the sequence number at which it was learned. */
 export interface OverlayEntry {
   row: AlertRow
   seq: number
 }
 
 /**
- * Olay durumu. `seq`, uygulanan her (etkili) olayda artan sayaçtır; REST anlık görüntüsünün HANGİ
- * olaylardan sonra alındığını karşılaştırmak için kullanılır (mergeAlerts).
+ * `seq` increases with every effective event; it tells which events a REST snapshot already reflects
+ * (see mergeAlerts).
  */
 export interface EventState {
   seq: number
   rows: Readonly<Record<number, OverlayEntry>>
-  /** Silinen kuralların id'leri: alarmları sunucuda da silindi, hiçbir kaynaktan gösterilmez. */
+  /** Ids of deleted rules: their alerts are gone on the server too and are never shown from any source. */
   deletedRules: readonly number[]
-  /** Silinen sunucuların id'leri: aynı gerekçeyle (sunucu silinince alarmları cascade ile gider). */
+  /** Ids of deleted servers: same reason (their alerts go by cascade). */
   deletedNodes: readonly string[]
 }
 
@@ -34,7 +34,6 @@ export type EventAction =
   | { type: 'ruleDeleted'; ruleId: number }
   | { type: 'nodeDeleted'; nodeId: string }
 
-/** Olaydan alarm satırı kurar (olay alarmın tüm alanlarını taşır). */
 export function toRow(event: AlertEvent): AlertRow {
   return {
     id: event.alert_id,
@@ -56,9 +55,7 @@ export function toRow(event: AlertEvent): AlertRow {
 }
 
 /**
- * Saf (pure) reducer: `(durum, olay) → yeni durum`. React'te `useReducer`, C#'ta değişmez bir durum
- * nesnesi üzerinde `Apply(event)` metodu gibi. Girdiyi DEĞİŞTİRMEZ; etkisiz olayda AYNI nesneyi döndürür
- * (React gereksiz yeniden çizim yapmaz).
+ * Pure reducer. Never mutates its input; a no-op event returns the SAME object so React skips the re-render.
  */
 export function eventReducer(state: EventState, action: EventAction): EventState {
   if (action.type === 'ruleDeleted') {
@@ -81,19 +78,19 @@ export function eventReducer(state: EventState, action: EventAction): EventState
   if (state.deletedRules.includes(row.rule_id) || state.deletedNodes.includes(row.node_id)) return state
 
   const existing = state.rows[row.id]?.row
-  if (existing !== undefined && STATUS_RANK[row.status] < STATUS_RANK[existing.status]) return state // eski/geç olay
+  if (existing !== undefined && STATUS_RANK[row.status] < STATUS_RANK[existing.status]) return state // stale or late event
 
   const seq = state.seq + 1
   return { ...state, seq, rows: { ...state.rows, [row.id]: { row, seq } } }
 }
 
 /**
- * REST anlık görüntüsünü (`snapshot`) olay durumuyla birleştirir.
+ * Merges the REST `snapshot` with the event state.
  *
- * `startSeq`: anlık görüntünün İSTEĞİ başlarken olay sayacının değeri. Bundan ÖNCE alınan olaylar
- * anlık görüntüde zaten yansıdığı için atlanır (aksi halde sunucuda silinmiş/değişmiş bir satırın eski
- * olay kopyası hayalet gibi kalırdı). İSTEK SIRASINDA ya da SONRA gelen olaylar anlık görüntüde
- * olmayabilir: uygulanır, ama yalnızca durumu anlık görüntüdekinden AZ olmayanlar (merdiven kuralı).
+ * `startSeq` is the event counter when the snapshot request STARTED. Events received before that are
+ * already reflected in the snapshot and are skipped (otherwise a stale copy of a row deleted or changed on
+ * the server would linger like a ghost). Events received during or after the request may be missing from
+ * the snapshot: they are applied, but only if they are not below the snapshot's status (ladder rule).
  */
 export function mergeAlerts(snapshot: readonly AlertRow[], startSeq: number, events: EventState): AlertRow[] {
   const byId = new Map<number, AlertRow>(snapshot.map((row) => [row.id, row]))
@@ -113,12 +110,12 @@ const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 } as const
 
 const time = (iso: string | null) => (iso === null ? 0 : Date.parse(iso))
 
-/** Sekmede gösterilecek alarmlar, sekmeye uygun sırayla (girdiyi değiştirmez). */
+/** Alerts for a tab, in that tab's order (does not mutate the input). */
 export function alertsForTab(alerts: readonly AlertRow[], tab: AlertStatus): AlertRow[] {
   const rows = alerts.filter((a) => a.status === tab)
   return rows.sort((a, b) => {
     if (tab === 'resolved') return time(b.resolved_at) - time(a.resolved_at) || b.id - a.id
-    // Açık/incelenen: önce önem derecesi (kritik en üstte), sonra en yeni.
+    // Open/acknowledged: severity first (critical on top), then newest.
     return (
       SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity] || time(b.triggered_at) - time(a.triggered_at) || b.id - a.id
     )

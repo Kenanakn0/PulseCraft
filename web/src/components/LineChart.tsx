@@ -7,21 +7,18 @@ import { useChartTheme } from '../charts/useChartTheme'
 interface LineChartProps {
   series: LineSeries[]
   resolution: 'raw' | '1m'
-  /** x ekseni sınırları (ms). */
   from: number
   to: number
   yMax?: number
   formatY: (value: number) => string
-  /** Ekran okuyucular için grafiğin kısa açıklaması (canvas'ın kendisi okunamaz). */
+  /** Short description for screen readers (the canvas itself is not readable). */
   ariaLabel: string
 }
 
 export function LineChart({ series, resolution, from, to, yMax, formatY, ariaLabel }: LineChartProps) {
-  // Tema değişince (koyu/açık) grafik yeni renklerle yeniden çizilir.
   const theme = useChartTheme()
 
-  // useMemo: seçenek/veri nesneleri yalnızca girdileri değişince yeniden üretilir. Her çizimde yeni bir
-  // nesne verirsek react-chartjs-2 bunu "değişiklik" sayıp grafiği gereksiz güncellerdi.
+  // Memoized: a new options/data object on every render would make react-chartjs-2 update the chart needlessly.
   const data = useMemo(() => buildLineData(series, resolution), [series, resolution])
   const options = useMemo(
     () => buildLineOptions({ from, to, theme, yMax, formatY, showLegend: series.length > 1 }),

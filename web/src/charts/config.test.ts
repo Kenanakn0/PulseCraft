@@ -10,7 +10,7 @@ import {
   gaugeOptions,
 } from './config'
 
-const theme = readChartTheme() // jsdom'da CSS değişkeni yok: varsayılan renkler
+const theme = readChartTheme() // jsdom has no CSS variables: default colours
 
 const options = () =>
   buildLineOptions({ from: 1000, to: 2000, theme, yMax: 100, formatY: (v) => `<${v}>`, showLegend: true })

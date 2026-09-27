@@ -5,17 +5,17 @@ import type { CreatedNode } from '../api/types'
 import { validateNodeName } from '../nodes/form'
 
 interface AddNodePanelProps {
-  /** Sunucu oluşturulunca (anahtar gösterilirken) listeyi yenilemek için. */
+  /** Refreshes the list once the server exists (while the key is being shown). */
   onCreated: () => void
-  /** Yeni sunucunun agent'ı bağlandı mı (liste + canlı akıştan). Panelde "bekleniyor / bağlandı" gösterilir. */
+  /** Whether the new server's agent has connected (from the list and the live stream). */
   isOnline?: (nodeId: string) => boolean
 }
 
 type CopyState = 'idle' | 'copied' | 'failed'
 
 /**
- * "Sunucu ekle": ad alır, sunucuyu oluşturur ve agent'ın API anahtarını YALNIZCA BİR KEZ gösterir.
- * Sunucu anahtarın yalnızca hash'ini saklar; bu panel kapanınca anahtar tarayıcı belleğinden de silinir.
+ * "Sunucu ekle": creates a server and shows the agent's API key ONLY ONCE. The server keeps only its
+ * hash, and closing this panel removes the key from browser memory as well.
  */
 export function AddNodePanel({ onCreated, isOnline = () => false }: AddNodePanelProps) {
   const [open, setOpen] = useState(false)
@@ -26,7 +26,7 @@ export function AddNodePanel({ onCreated, isOnline = () => false }: AddNodePanel
   const [copy, setCopy] = useState<CopyState>('idle')
 
   function close() {
-    // Anahtar state'ten silinir: panel bir daha açılsa da görünmez.
+    // Remove the key from state: it cannot reappear when the panel is reopened.
     setOpen(false)
     setName('')
     setError(null)
@@ -55,7 +55,7 @@ export function AddNodePanel({ onCreated, isOnline = () => false }: AddNodePanel
 
   async function copyKey(key: string) {
     try {
-      // Pano API'si yalnızca güvenli bağlamda (https ya da localhost) vardır.
+      // The Clipboard API exists only in secure contexts (https or localhost).
       await navigator.clipboard.writeText(key)
       setCopy('copied')
     } catch {

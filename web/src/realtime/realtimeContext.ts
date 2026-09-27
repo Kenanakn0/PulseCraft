@@ -7,16 +7,16 @@ export type RealtimeListener = (event: RealtimeEvent) => void
 export interface RealtimeContextValue {
   status: ConnectionStatus
   /**
-   * Yeniden bağlanma sayısı (ilk bağlantı hariç). Bir veri kaynağı bunu effect bağımlılığına koyarak
-   * "kopma sırasında kaçan olaylar olabilir, REST'ten yeniden senkronla" kuralını uygular.
+   * Number of reconnects (the first connection excluded). A data source puts it in an effect dependency to
+   * resync from REST, since events may have been missed while disconnected.
    */
   epoch: number
-  /** Olaylara abone olur; abonelikten çıkan fonksiyon döner (C#'ta `event +=` / `-=`). */
+  /** Subscribes to events; returns the unsubscribe function. */
   subscribe: (listener: RealtimeListener) => () => void
 }
 
-// Varsayılan değer = "canlı akış yok": Provider'ın dışında (ör. tek başına hook testlerinde) her şey
-// yalnızca REST ile çalışır, hata fırlatılmaz.
+// Default = no live stream: outside the provider (e.g. standalone hook tests) everything works with REST
+// only, without throwing.
 export const RealtimeContext = createContext<RealtimeContextValue>({
   status: 'closed',
   epoch: 0,

@@ -7,9 +7,7 @@ const password = process.env.E2E_PASSWORD
 
 const shot = (name: string) => `e2e/screenshots/${name}.png`
 
-// Giriş TEK KEZ API ile yapılır ve oturum (cookie) testlerle paylaşılır: giriş denemeleri IP başına
-// dakikada 10 ile sınırlı olduğundan her testte arayüzden giriş yapmak sınıra takılırdı.
-// Oturum: setup projesinin bir kez yazdığı çerez (kendi girişimizi yapmayız; bkz. e2e/auth-state.ts).
+// Session: the cookie written once by the setup project (see e2e/auth-state.ts).
 const storageState = USER1_STATE
 
 const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`
@@ -17,7 +15,7 @@ const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).s
 interface TestNode {
   id: string
   name: string
-  /** Bu node için (agent gibi, API key ile) bir ölçüm gönderir. */
+  /** Posts one sample for this node (like the agent, with the API key). */
   postSample: (values: { cpu: number; mem: number; disk: number }, hostname?: string) => Promise<void>
 }
 
@@ -72,7 +70,7 @@ test.describe('sunucu listesi (gerçek tarayıcı + gerçek arka uç)', () => {
 
     const card = page.getByTestId('node-card').filter({ hasText: node.name })
     await expect(card.getByText('Çevrimiçi')).toBeVisible()
-    await expect(card.getByText('demo-sunucu-1')).toBeVisible() // hostname, ölçümle birlikte gönderildi
+    await expect(card.getByText('demo-sunucu-1')).toBeVisible() // the hostname was sent with the sample
     await expect(card.getByText('42,5 %')).toBeVisible()
     await expect(card.getByText('61,0 %')).toBeVisible()
     await expect(card.getByText('70,0 %')).toBeVisible()
@@ -92,12 +90,12 @@ test.describe('sunucu listesi (gerçek tarayıcı + gerçek arka uç)', () => {
     await node.postSample({ cpu: 10, mem: 20, disk: 30 })
 
     const page = await context.newPage()
-    // Tarayıcının Date.now() değerini 3 gün ileri sabitle. Durum tarayıcı saatinden
-    // hesaplansaydı sunucu "3 gün önce görülmüş" ve çevrimdışı görünürdü.
+    // Pin the browser's Date.now() three days ahead. If the status were computed from the browser clock,
+    // the server would look "seen 3 days ago" and offline.
     await page.clock.setFixedTime(new Date(Date.now() + 3 * 24 * 3600 * 1000))
     await page.goto('/')
 
-    // Testin öncülü: tarayıcı saati GERÇEKTEN 3 gün ileride (yoksa test hiçbir şey kanıtlamaz).
+    // Precondition: the browser clock really is 3 days ahead (otherwise the test proves nothing).
     const browserNow = await page.evaluate(() => Date.now())
     expect(browserNow - Date.now()).toBeGreaterThan(2 * 24 * 3600 * 1000)
 
@@ -123,10 +121,10 @@ test.describe('sunucu listesi (gerçek tarayıcı + gerçek arka uç)', () => {
     const card = page.getByTestId('node-card').filter({ hasText: node.name })
     await expect(card.getByText('Çevrimiçi')).toBeVisible()
 
-    // Eşik 15 sn, liste 10 sn'de bir yenilenir → en geç ~25 sn içinde çevrimdışı olmalı.
+    // 15 s threshold + 10 s list refresh → offline within ~25 s.
     await expect(card.getByText('Çevrimdışı')).toBeVisible({ timeout: 45_000 })
     await expect(card).toHaveAttribute('data-online', 'false')
-    await expect(card.getByText('33,0 %')).toBeVisible() // son değerler korunur
+    await expect(card.getByText('33,0 %')).toBeVisible() // last values are kept
     await page.screenshot({ path: shot('11-cevrimdisi') })
 
     await context.close()

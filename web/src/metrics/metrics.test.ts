@@ -99,7 +99,7 @@ describe('capPoints', () => {
     const input = make(10_000)
     const out = capPoints(input, 1000)
 
-    expect(out.length).toBeLessThanOrEqual(1001) // son noktanın eklenmesi için +1
+    expect(out.length).toBeLessThanOrEqual(1001) // +1 so the last point is included
     expect(out[0]).toBe(input[0])
     expect(out[out.length - 1]).toBe(input[input.length - 1])
     expect(out.map((p) => p.t)).toEqual([...out.map((p) => p.t)].sort((a, b) => a - b))

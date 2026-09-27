@@ -11,12 +11,10 @@ interface RuleRow {
   node_id: string | null
 }
 
-// Test verisi temizliği (otomatik fixture): her testten ÖNCE var olan sunucular not edilir; test BİTİNCE — başarısız
-// olsa bile — o test sırasında oluşturulan `e2e-*` sunucular ve genel (sunucuya bağlı olmayan) `e2e-*` kurallar
-// silinir. Sunucuya bağlı kurallar, metrikler ve alarmlar sunucuyla birlikte cascade ile gider.
-// Neden: yarıda kalan testler kendi temizliğine ulaşamayıp prova veritabanında kalıntı bırakıyordu; bu kalıntılar
-// sonraki koşularda beklenmeyen sayılar ("Açık 2", "İncelenen 5") üretip teşhisi karıştırdı (bkz. docs/decisions.md "Testing").
-// C# karşılığı: her testten sonra çalışan bir IAsyncLifetime.DisposeAsync.
+// Automatic cleanup fixture: servers that exist before a test are noted; when the test ends, even if it
+// failed, the `e2e-*` servers and global `e2e-*` rules it created are deleted (scoped rules, metrics and
+// alerts go with their server by cascade). Aborted tests used to leave data behind that produced confusing
+// counts in later runs (see docs/decisions.md "Testing").
 export const test = base.extend<{ cleanupE2EData: void }>({
   cleanupE2EData: [
     async ({ baseURL }, runTest) => {

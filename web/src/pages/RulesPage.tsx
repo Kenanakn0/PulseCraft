@@ -3,7 +3,6 @@ import { RuleRow } from '../components/RuleRow'
 import { useNodes } from '../nodes/useNodes'
 import { useRules } from '../rules/useRules'
 
-/** Alarm kuralları ekranı: `/alert-rules`. Ekleme (RuleForm) + liste (etkinleştir/kapat/sil). */
 export function RulesPage() {
   const { state, reload } = useRules()
   const { state: nodesState } = useNodes()

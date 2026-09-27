@@ -9,7 +9,7 @@ import { AuthProvider } from './auth/AuthProvider'
 import { alertRoutes } from './test/alertStub'
 import { jsonResponse, meResponse, stubFetch, testUser, textResponse } from './test/fetchStub'
 
-// Adres çubuğunun karşılığı: testte hangi yolda olduğumuzu görmek için.
+// Stands in for the address bar: shows which path the test is on.
 function Where() {
   return <p data-testid="where">{useLocation().pathname}</p>
 }
@@ -29,7 +29,8 @@ function renderApp(initialEntries: Parameters<typeof MemoryRouter>[0]['initialEn
 
 const noSession = () => textResponse('oturum gerekli', 401)
 
-// Giriş yapılmış çerçeve açılınca GET /nodes ve GET /alerts çağrılır; varsayılan olarak boş liste döner, test isterse ezer.
+// The signed-in layout calls GET /nodes and GET /alerts; they answer with empty lists unless a test
+// overrides them.
 const stub = (routes: Parameters<typeof stubFetch>[0]) =>
   stubFetch({ 'GET /api/v1/nodes': () => jsonResponse([]), ...alertRoutes(() => []), ...routes })
 
@@ -58,7 +59,7 @@ describe('uygulama akışı', () => {
   })
 
   it('oturum kontrolü sürerken "Yükleniyor…" gösterir', async () => {
-    stub({ 'GET /api/v1/auth/me': () => new Promise<Response>(() => undefined) }) // hiç yanıtlanmaz
+    stub({ 'GET /api/v1/auth/me': () => new Promise<Response>(() => undefined) }) // never answered
     renderApp()
     expect(await screen.findByText('Yükleniyor…')).toBeInTheDocument()
   })
@@ -157,7 +158,7 @@ describe('uygulama akışı', () => {
       'GET /api/v1/auth/me': noSession,
       'POST /api/v1/auth/login': () => jsonResponse({ user: testUser }),
     })
-    // /login'e "önceki adres" bilgisiyle gelinmiş gibi (RequireAuth'un yaptığı gibi).
+    // As if /login was reached with a "from" location (what RequireAuth does).
     renderApp([{ pathname: '/login', state: { from: '/bilinmeyen/sayfa' } }])
     const user = userEvent.setup()
 
@@ -165,7 +166,7 @@ describe('uygulama akışı', () => {
     await user.type(screen.getByLabelText('Parola'), 'dogru-parola')
     await user.click(screen.getByRole('button', { name: 'Giriş yap' }))
 
-    // /bilinmeyen/sayfa tanımlı olmadığı için "*" kuralı "/"e düşürür; önemli olan giriş sayfasında kalmamaktır.
+    // /bilinmeyen/sayfa is not defined, so the "*" route sends it to "/"; what matters is leaving the login page.
     await waitFor(() => expect(screen.getByTestId('where')).not.toHaveTextContent('/login'))
   })
 
@@ -190,10 +191,10 @@ describe('uygulama akışı', () => {
       'GET /api/v1/nodes': () => (expired ? noSession() : jsonResponse([])),
     })
     renderApp(['/'])
-    await screen.findByText('Henüz kayıtlı sunucu yok.') // panel tamamen yüklendi (yükleme durumu geçti)
+    await screen.findByText('Henüz kayıtlı sunucu yok.') // dashboard fully loaded
 
-    expired = true // token bu arada sona erdi
-    await apiFetch('/api/v1/nodes').catch(() => undefined) // uygulamanın herhangi bir yerindeki istek
+    expired = true // the token expired meanwhile
+    await apiFetch('/api/v1/nodes').catch(() => undefined) // a request anywhere in the app
 
     expect(await screen.findByText(/Oturumunuzun süresi doldu/)).toBeInTheDocument()
     expect(screen.getByTestId('where')).toHaveTextContent('/login')

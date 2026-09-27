@@ -11,7 +11,7 @@ describe('apiFetch', () => {
     const init = fetchMock.mock.calls[0]?.[1]
     expect(init?.credentials).toBe('same-origin')
     expect(init?.headers).toMatchObject({ Accept: 'application/json' })
-    expect(init?.headers).not.toHaveProperty('Content-Type') // gövde yok
+    expect(init?.headers).not.toHaveProperty('Content-Type') // no body
   })
 
   it('POST: gövdeyi JSON olarak gönderir ve Content-Type ekler', async () => {
@@ -55,7 +55,7 @@ describe('apiFetch', () => {
         throw new TypeError('Failed to fetch')
       },
     })
-    // stubFetch handler'ı fetch içinde çağırır; fırlatılan hata fetch'in reddi olarak görünür.
+    // stubFetch calls the handler inside fetch; a thrown error surfaces as fetch's rejection.
     expect(await apiFetch('/api/x').catch((e: unknown) => e)).toMatchObject({ name: 'ApiError', status: 0 })
   })
 

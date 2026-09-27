@@ -24,7 +24,6 @@ import (
 func main() {
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, nil)))
 
-	// Geçersiz konfigürasyonla (ör. eksik/kısa JWT_SECRET) server hiç başlamaz.
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Error("geçersiz konfigürasyon", "err", err)
@@ -43,8 +42,6 @@ func main() {
 	slog.Info("konfigürasyon yüklendi", "addr", cfg.ListenAddr, "demo_users", len(demoUsers),
 		"trusted_proxies", len(trustedProxies), "cookie_secure", cfg.CookieSecure)
 
-	// Ctrl+C / SIGTERM gelince iptal edilen context — agent'taki
-	// context.WithCancel + signal.Notify ikilisinin tek çağrılık kısayolu.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -79,8 +76,8 @@ func main() {
 	rdb := redis.NewClient(redisOpt)
 	defer rdb.Close()
 
-	// Redis'e ulaşılamaması sunucuyu durdurmaz: metrik kaydı ve alarm motoru
-	// çalışmaya devam eder, sadece canlı yayın kesilir (go-redis kendisi yeniden bağlanır).
+	// Redis being unreachable does not stop the server: ingest and alerting keep working, only the live
+	// stream pauses (go-redis reconnects by itself).
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		slog.Warn("redis'e ulaşılamadı, canlı yayın çalışmayabilir", "err", err)
 	} else {
@@ -99,8 +96,6 @@ func main() {
 	}
 	go engine.Run(ctx, 30*time.Second)
 
-	// Oturum iptal listesi ve login rate limit (IP başına dakikada 10 deneme);
-	// ikisinin de süresi dolan kayıtları periyodik temizlenir.
 	denylist := auth.NewDenylist()
 	go denylist.Run(ctx, 10*time.Minute)
 	loginLimiter := auth.NewRateLimiter(10, time.Minute)
@@ -116,8 +111,7 @@ func main() {
 	}
 	srv := &http.Server{Addr: cfg.ListenAddr, Handler: a.Routes()}
 
-	// Sinyal gelince (ctx iptal) sunucuyu, süren istekleri bitirmesi için
-	// 5 saniye tanıyarak kapat.
+	// Give in-flight requests 5 seconds to finish.
 	go func() {
 		<-ctx.Done()
 		slog.Info("kapanış sinyali alındı, sunucu durduruluyor")

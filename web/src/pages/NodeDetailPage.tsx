@@ -8,18 +8,16 @@ import { parseRangeId, type RangeId } from '../metrics/ranges'
 import { formatAge } from '../nodes/format'
 import { useNodes } from '../nodes/useNodes'
 
-// `React.lazy` ile yüklenebilsin diye bu sayfa varsayılan (default) dışa aktarılır.
+// Default export so the page can be loaded with React.lazy.
 export default function NodeDetailPage() {
-  // useParams: adres çubuğundaki /nodes/:id parçasını okur (C#'ta route parametresi, [FromRoute] id).
   const { id = '' } = useParams()
 
-  // useSearchParams: ?range=1h gibi sorgu dizesini okur/yazar (C#'ta [FromQuery]). Aralığı adreste
-  // tutmak, sayfa yenilenince ya da bağlantı paylaşılınca aynı görünümün gelmesini sağlar.
+  // The range lives in the URL (?range=), so a reload or a shared link shows the same view.
   const [searchParams, setSearchParams] = useSearchParams()
   const rangeId = parseRangeId(searchParams.get('range'))
   const changeRange = (next: RangeId) => setSearchParams({ range: next }, { replace: true })
 
-  // Sunucu bilgisi (ad, çevrimiçi durumu, son değerler) liste uç noktasından gelir ve periyodik yenilenir.
+  // Server info (name, online status, latest values) comes from the list endpoint and refreshes periodically.
   const { state, reload } = useNodes()
   const navigate = useNavigate()
   const node = state.status === 'ready' ? (state.nodes.find((n) => n.id === id) ?? null) : null
@@ -76,7 +74,9 @@ export default function NodeDetailPage() {
 
           <MetricsPanel key={`${id}:${rangeId}`} nodeId={id} rangeId={rangeId} />
 
-          {/* Silinince listeye dönülür; `replace`: geri tuşu artık olmayan sunucunun sayfasına götürmesin. */}
+          {/*
+           * After deleting, go back to the list; `replace` so Back does not return to a page that no longer exists.
+           */}
           <DeleteNodeSection node={node} onDeleted={() => navigate('/', { replace: true })} />
         </>
       )}

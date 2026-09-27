@@ -1,8 +1,8 @@
 import type { SocketLike } from '../realtime/client'
 
 /**
- * Testler için sahte soket: gerçek ağ yok, olayları test elle tetikler.
- * `FakeSocket.instances` oluşturulan tüm soketleri sırayla tutar.
+ * Fake socket for tests: no network; the test triggers events by hand. `FakeSocket.instances` keeps every
+ * socket created, in order.
  */
 export class FakeSocket implements SocketLike {
   static instances: FakeSocket[] = []
@@ -29,7 +29,7 @@ export class FakeSocket implements SocketLike {
     this.closedByClient = true
   }
 
-  // --- testin kullandığı tetikleyiciler ---
+  // --- triggers used by tests ---
   open() {
     this.onopen?.(new Event('open'))
   }
@@ -41,10 +41,9 @@ export class FakeSocket implements SocketLike {
   }
 }
 
-/** Provider'a verilecek fabrika. */
 export const createFakeSocket = (url: string) => new FakeSocket(url)
 
-/** Sunucunun gönderdiği biçimde bir "metric" olayı. */
+/** A "metric" event in the shape the server sends. */
 export function metricEvent(nodeId: string, time: string, overrides: Record<string, unknown> = {}) {
   return {
     type: 'metric',

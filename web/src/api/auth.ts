@@ -1,8 +1,8 @@
 import { apiFetch } from './http'
 import type { LoginResponse, MeResponse } from './types'
 
-// Kimlik doğrulama uçları. Üçü de silent401: bu isteklerdeki 401 "oturum yok/parola yanlış"
-// demektir ve çağıran taraf tarafından zaten ele alınır; global "oturum bitti" mesajı gösterilmez.
+// All three use silent401: here 401 means "no session / wrong password" and is handled by the caller, so
+// the global "session ended" notice is not triggered.
 export const authApi = {
   me: (signal?: AbortSignal) => apiFetch<MeResponse>('/api/v1/auth/me', { signal, silent401: true }),
 
@@ -13,7 +13,7 @@ export const authApi = {
       silent401: true,
     }),
 
-  /** Sessiz OLMAYAN oturum sorgusu: 401 alırsa global "oturum bitti" bildirimi tetiklenir (WebSocket kopmalarında kullanılır). */
+  /** NOT silent: a 401 triggers the global "session ended" notice (used after WebSocket disconnects). */
   probe: (signal?: AbortSignal) => apiFetch<MeResponse>('/api/v1/auth/me', { signal }),
 
   logout: () => apiFetch<void>('/api/v1/auth/logout', { method: 'POST', silent401: true }),

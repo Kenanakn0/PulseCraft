@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// Table-driven test: Go'da test senaryoları bir slice'ta toplanıp t.Run ile
-// çalıştırılır — C#'taki xUnit [Theory] + [InlineData] karşılığı.
 func TestLoad_JWTSecret(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -18,15 +16,14 @@ func TestLoad_JWTSecret(t *testing.T) {
 		{"31 karakter", strings.Repeat("a", 31), true},
 		{"tam 32 karakter", strings.Repeat("a", 32), false},
 		{"uzun", strings.Repeat("a", 64), false},
-		// 32 bayt ama 16 karakter: bayt değil KARAKTER sayısı sayılır.
+		// 32 bytes but 16 characters: characters are counted, not bytes.
 		{"16 karakter, 32 bayt", strings.Repeat("ğ", 16), true},
-		// Baştaki/sondaki boşluklar sayılmaz.
+		// Surrounding whitespace does not count.
 		{"boşluklarla şişirilmiş", "  " + strings.Repeat("a", 20) + "  ", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// t.Setenv, test bitince eski değeri otomatik geri yükler.
 			t.Setenv("JWT_SECRET", tt.secret)
 
 			cfg, err := Load()

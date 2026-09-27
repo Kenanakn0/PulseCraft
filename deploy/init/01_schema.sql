@@ -1,16 +1,12 @@
--- =====================================================================
--- PulseCraft - Veritabanı Şeması
--- PostgreSQL 16 + TimescaleDB
--- Bu dosya container ilk ayağa kalktığında otomatik çalışır.
--- =====================================================================
+-- PulseCraft database schema (PostgreSQL 16 + TimescaleDB).
+-- Runs automatically on the first start of an empty database volume.
 
 CREATE EXTENSION IF NOT EXISTS timescaledb;
 
 -- ---------------------------------------------------------------------
--- 1. İLİŞKİSEL TABLOLAR
+-- 1. Relational tables
 -- ---------------------------------------------------------------------
 
--- Kullanıcılar (dashboard'a giriş yapanlar)
 CREATE TABLE users (
     id              BIGSERIAL PRIMARY KEY,
     email           TEXT        NOT NULL,
@@ -20,24 +16,22 @@ CREATE TABLE users (
 );
 CREATE UNIQUE INDEX ux_users_email ON users (lower(email));
 
--- İzlenen sunucular (her birinde bir agent çalışır)
 CREATE TABLE nodes (
     id              UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     name            TEXT        NOT NULL,
     hostname        TEXT,
     os              TEXT,
-    api_key_hash    TEXT        NOT NULL,            -- agent kimlik doğrulaması (düz key saklanmaz)
+    api_key_hash    TEXT        NOT NULL,            -- the plain key is never stored
     is_active       BOOLEAN     NOT NULL DEFAULT true,
-    last_seen_at    TIMESTAMPTZ,                     -- son metrik geliş zamanı (online/offline için)
+    last_seen_at    TIMESTAMPTZ,                     -- server receive time of the last samples
     created_by      BIGINT      REFERENCES users(id) ON DELETE SET NULL,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Alarm kuralları (ör. cpu_percent > 85, 30 sn boyunca)
 CREATE TABLE alert_rules (
     id               BIGSERIAL PRIMARY KEY,
     name             TEXT        NOT NULL,
-    node_id          UUID        REFERENCES nodes(id) ON DELETE CASCADE,  -- NULL = tüm sunucular
+    node_id          UUID        REFERENCES nodes(id) ON DELETE CASCADE,  -- NULL = all servers
     metric           TEXT        NOT NULL CHECK (metric IN ('cpu_percent','mem_percent','disk_percent')),
     operator         TEXT        NOT NULL CHECK (operator IN ('>','>=','<','<=')),
     threshold        REAL        NOT NULL,
@@ -48,7 +42,7 @@ CREATE TABLE alert_rules (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Tetiklenen alarmlar (open -> acknowledged -> resolved)
+-- Lifecycle: open -> acknowledged -> resolved
 CREATE TABLE alerts (
     id               BIGSERIAL PRIMARY KEY,
     rule_id          BIGINT      NOT NULL REFERENCES alert_rules(id) ON DELETE CASCADE,
@@ -56,16 +50,15 @@ CREATE TABLE alerts (
     status           TEXT        NOT NULL DEFAULT 'open' CHECK (status IN ('open','acknowledged','resolved')),
     trigger_value    REAL        NOT NULL,
     triggered_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
-    acknowledged_by  BIGINT      REFERENCES users(id) ON DELETE SET NULL,   -- "İncelemeye aldım"
+    acknowledged_by  BIGINT      REFERENCES users(id) ON DELETE SET NULL,
     acknowledged_at  TIMESTAMPTZ,
     resolved_at      TIMESTAMPTZ
 );
--- Aynı kural + sunucu için aynı anda tek aktif alarm olsun (spam engeli)
+-- At most one active alert per rule and server, even under concurrent evaluation.
 CREATE UNIQUE INDEX ux_alerts_active ON alerts (rule_id, node_id)
     WHERE status IN ('open','acknowledged');
 CREATE INDEX ix_alerts_status_time ON alerts (status, triggered_at DESC);
 
--- Bildirimler (kullanıcıya düşen alarm bildirimleri)
 CREATE TABLE notifications (
     id          BIGSERIAL PRIMARY KEY,
     alert_id    BIGINT      NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
@@ -77,7 +70,7 @@ CREATE TABLE notifications (
 CREATE INDEX ix_notifications_user_unread ON notifications (user_id) WHERE read_at IS NULL;
 
 -- ---------------------------------------------------------------------
--- 2. ZAMAN SERİSİ TABLOSU (geniş tablo)
+-- 2. Time series (one wide row per sample)
 -- ---------------------------------------------------------------------
 
 CREATE TABLE metrics (
@@ -87,23 +80,22 @@ CREATE TABLE metrics (
     mem_percent      REAL        NOT NULL,
     mem_used_bytes   BIGINT      NOT NULL,
     disk_percent     REAL        NOT NULL,
-    net_rx_bps       BIGINT      NOT NULL,   -- saniyede alınan byte
-    net_tx_bps       BIGINT      NOT NULL,   -- saniyede gönderilen byte
-    load1            REAL                    -- Linux load average (Windows'ta NULL)
+    net_rx_bps       BIGINT      NOT NULL,   -- bytes received per second
+    net_tx_bps       BIGINT      NOT NULL,   -- bytes sent per second
+    load1            REAL                    -- NULL where the platform has no load average
 );
 
 SELECT create_hypertable('metrics', 'time', chunk_time_interval => INTERVAL '1 day');
--- Sunucu + zaman başına TEK satır: agent zaman aşımı sonrası aynı örnekleri yeniden gönderirse
--- (ya da tek istekte aynı zaman iki kez gelirse) mükerrer satır oluşmaz; server INSERT'ü
--- ON CONFLICT DO NOTHING ile yazar. Hypertable'da unique indeks bölümleme sütununu (time) içermek
--- zorundadır (içeriyor). Aynı indeks "sunucunun en yeni ölçümü" sorgularını da hızlandırır.
+-- One row per server and timestamp: a batch re-sent after an agent timeout (or a timestamp repeated within
+-- one request) cannot create duplicates, because the server inserts with ON CONFLICT DO NOTHING. A unique
+-- index on a hypertable must include the partitioning column (time). The same index also serves the
+-- "newest sample per server" lookup.
 CREATE UNIQUE INDEX ux_metrics_node_time ON metrics (node_id, time DESC);
 
 -- ---------------------------------------------------------------------
--- 3. TIMESCALE POLİTİKALARI
+-- 3. TimescaleDB policies
 -- ---------------------------------------------------------------------
 
--- 7 günden eski ham veriyi sıkıştır (sunucu bazında gruplanarak)
 ALTER TABLE metrics SET (
     timescaledb.compress,
     timescaledb.compress_segmentby = 'node_id',
@@ -111,10 +103,9 @@ ALTER TABLE metrics SET (
 );
 SELECT add_compression_policy('metrics', INTERVAL '7 days');
 
--- 30 günden eski ham veriyi sil
 SELECT add_retention_policy('metrics', INTERVAL '30 days');
 
--- 1 dakikalık özet (uzun aralıklı grafikler buradan okunur)
+-- 1-minute aggregate: longer chart ranges read from here.
 CREATE MATERIALIZED VIEW metrics_1m
 WITH (timescaledb.continuous) AS
 SELECT
@@ -136,5 +127,4 @@ SELECT add_continuous_aggregate_policy('metrics_1m',
     end_offset        => INTERVAL '1 minute',
     schedule_interval => INTERVAL '1 minute');
 
--- Özet veriyi 180 gün tut
 SELECT add_retention_policy('metrics_1m', INTERVAL '180 days');

@@ -7,7 +7,7 @@ const password = process.env.E2E_PASSWORD
 
 const shot = (name: string) => `e2e/screenshots/${name}.png`
 
-// Oturum: setup projesinin bir kez yazdığı çerez (kendi girişimizi yapmayız; bkz. e2e/auth-state.ts).
+// Session: the cookie written once by the setup project (see e2e/auth-state.ts).
 const storageState = USER1_STATE
 
 const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`
@@ -18,7 +18,7 @@ async function withSession(browser: Browser, baseURL: string | undefined) {
   return { api, context }
 }
 
-/** Yalnızca BU testin node'una bağlı, düşük eşikli bir kural ve o node'a ölçüm gönderen yardımcılar. */
+/** A low-threshold rule scoped to THIS test's node, plus helpers that post samples to it. */
 async function setup(api: APIRequestContext, prefix: string) {
   const nodeName = uniqueName(`${prefix}-node`)
   const ruleName = uniqueName(`${prefix}-kural`)
@@ -123,7 +123,7 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
 
     await card(a, s.ruleName).getByRole('button', { name: 'İncelemeye aldım' }).click()
 
-    // B'de sayfa YENİLENMEDEN: kart "Açık"tan düştü, "İncelenen"de ve kimin aldığı görünüyor.
+    // Without reloading tab B: the card left "Açık" and shows in "İncelenen" with who took it.
     await expect(card(b, s.ruleName)).toHaveCount(0, { timeout: 3000 })
     await tab(b, /İncelenen/).click()
     await expect(card(b, s.ruleName)).toContainText('E2E Kullanici')
@@ -131,7 +131,7 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
     await expect(card(b, s.ruleName).getByRole('button')).toHaveCount(0)
     await b.screenshot({ path: shot('31-alarm-panosu-incelenen'), fullPage: true })
 
-    // Eşik altına inince alarm çözülür (iki sekmede de "Çözülen"e geçer, süre görünür).
+    // Below the threshold the alert resolves (in both tabs, with a duration).
     await s.post(0.5)
     await tab(b, /Çözülen/).click()
     await expect(card(b, s.ruleName)).toContainText('Süre:', { timeout: 4000 })
@@ -152,13 +152,13 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
 
     const page = await context.newPage()
     await page.goto('/alerts')
-    await expect(page.getByTestId('live-status')).toHaveText('Canlı') // WS bağlanmadan ölçüm gönderirsek olayı kaçırabilir
+    await expect(page.getByTestId('live-status')).toHaveText('Canlı') // posting before the WS is connected can miss the event
     await s.post(50)
     await expect(card(page, s.ruleName)).toBeVisible({ timeout: 4000 })
 
     expect((await s.putRule({ enabled: false })).status()).toBe(200)
 
-    await expect(card(page, s.ruleName)).toHaveCount(0, { timeout: 4000 }) // "Açık"tan çıktı
+    await expect(card(page, s.ruleName)).toHaveCount(0, { timeout: 4000 })
     await tab(page, /Çözülen/).click()
     await expect(card(page, s.ruleName)).toBeVisible()
 
@@ -178,7 +178,7 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
 
     const page = await context.newPage()
     await page.goto('/alerts')
-    await expect(page.getByTestId('live-status')).toHaveText('Canlı') // WS bağlanmadan ölçüm gönderirsek olayı kaçırabilir
+    await expect(page.getByTestId('live-status')).toHaveText('Canlı') // posting before the WS is connected can miss the event
     await s.post(50)
     await expect(card(page, s.ruleName)).toBeVisible({ timeout: 4000 })
 
@@ -186,7 +186,7 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
 
     await expect(card(page, s.ruleName)).toHaveCount(0, { timeout: 4000 })
     await tab(page, /Çözülen/).click()
-    await expect(card(page, s.ruleName)).toHaveCount(0) // "resolved" olarak da kalmadı: cascade + rule olayı
+    await expect(card(page, s.ruleName)).toHaveCount(0) // not kept as resolved either: cascade + rule event
 
     await context.close()
     await api.dispose()
@@ -203,23 +203,23 @@ test.describe('ortak alarm panosu (gerçek tarayıcı + gerçek WebSocket)', () 
     const b = await context.newPage()
     await a.goto('/alerts')
     await b.goto('/alerts')
-    // WS bağlanmadan ölçüm gönderirsek o sekme olayı kaçırıp yalnızca 60 sn'lik eşitlemede yakalar
-    // (test zaman aşımını fersah fersah aşar) — bu, önceki kararsızlığın KÖK NEDENİYDİ.
+    // Posting before the WS is connected lets that tab miss the event and only catch it at the 60 s
+    // resync, far beyond the test timeout: this was the root cause of the earlier flakiness.
     await expect(a.getByTestId('live-status')).toHaveText('Canlı')
     await expect(b.getByTestId('live-status')).toHaveText('Canlı')
     await s.post(50)
     await expect(card(a, s.ruleName)).toBeVisible({ timeout: 4000 })
     await expect(card(b, s.ruleName)).toBeVisible({ timeout: 4000 })
 
-    // İki tıklamayı aynı anda gönder. click() düğmenin "kararlı" olmasını birkaç kare bekler ve kalkan düğmeye
-    // yeniden dener: A'nın incelemesi WebSocket ile B'ye daha önce ulaşırsa B'nin düğmesi kalkar ve test 30 sn
-    // takılırdı. Bu yüzden iki düğme önce bulunur, tıklamalar beklemeden tetiklenir (kalkmış düğmeye tıklamak etkisiz).
+    // Fire both clicks at the same time. click() waits a few frames for the button to be "stable" and retries
+    // a detached one: if A's acknowledgement reached B over the WebSocket first, B's button disappeared and the
+    // test hung for 30 s. So both buttons are located first and clicked without waiting (a detached one is a no-op).
     const buttons = await Promise.all(
       [a, b].map((page) => card(page, s.ruleName).getByRole('button', { name: 'İncelemeye aldım' }).elementHandle()),
     )
     await Promise.all(buttons.map((button) => button?.evaluate((el) => (el as HTMLElement).click())))
 
-    // Sonuçta HER İKİ sekmede de kart "İncelenen"de ve aynı kullanıcıyla görünür; hata yok, çift kayıt yok.
+    // Both tabs end with the card in "İncelenen" under the same user: no error, no double record.
     for (const page of [a, b]) {
       await expect(card(page, s.ruleName)).toHaveCount(0, { timeout: 4000 })
       await tab(page, /İncelenen/).click()

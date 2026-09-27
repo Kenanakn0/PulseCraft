@@ -72,28 +72,24 @@ func TestToken_Rejected(t *testing.T) {
 	s := NewTokenService(testSecret, time.Hour)
 	good, _, _ := s.Issue(testUser)
 
-	// Yanlış anahtarla imzalanmış.
 	other := NewTokenService("baska-bir-gizli-anahtar-en-az-32-karakter-uzun", time.Hour)
 	forged, _, _ := other.Issue(testUser)
 
-	// İçeriği değiştirilmiş (imza artık uymaz): payload'daki bir harf değişir.
+	// Tampered payload: the signature no longer matches.
 	parts := strings.Split(good, ".")
 	tampered := parts[0] + "." + flipChar(parts[1]) + "." + parts[2]
 
-	// exp alanı olmayan token.
 	noExp, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{"jti": "x", "uid": 7}).SignedString([]byte(testSecret))
 
-	// alg=none saldırısı.
 	none, _ := jwt.NewWithClaims(jwt.SigningMethodNone, jwt.MapClaims{
 		"jti": "x", "uid": 7, "exp": time.Now().Add(time.Hour).Unix(),
 	}).SignedString(jwt.UnsafeAllowNoneSignatureType)
 
-	// Aynı anahtarla ama farklı algoritma (HS512): yalnızca HS256 kabul edilmeli.
+	// Same key, different algorithm (HS512): only HS256 is accepted.
 	hs512, _ := jwt.NewWithClaims(jwt.SigningMethodHS512, jwt.MapClaims{
 		"jti": "x", "uid": 7, "exp": time.Now().Add(time.Hour).Unix(),
 	}).SignedString([]byte(testSecret))
 
-	// jti / uid eksik.
 	noJTI, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
 		"exp": time.Now().Add(time.Hour).Unix(),
 	}).SignedString([]byte(testSecret))
@@ -119,7 +115,6 @@ func TestToken_Rejected(t *testing.T) {
 	}
 }
 
-// flipChar: base64 metnindeki ilk harfi başka bir harfle değiştirir.
 func flipChar(s string) string {
 	if s[0] == 'A' {
 		return "B" + s[1:]

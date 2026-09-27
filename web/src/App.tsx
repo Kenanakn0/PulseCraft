@@ -7,14 +7,9 @@ import { DashboardPage } from './pages/DashboardPage'
 import { RulesPage } from './pages/RulesPage'
 import { LoginPage } from './pages/LoginPage'
 
-// LAZY YÜKLEME: detay sayfası (ve onunla Chart.js kütüphanesi) yalnızca ilk kez ziyaret edilince
-// indirilir; giriş ve sunucu listesi küçük kalır. C#'ta Lazy<T> ile ya da bir derlemeyi
-// ihtiyaç anında yüklemekle aynı fikir. `import()` bir Promise döndürür, Vite bunu ayrı bir dosyaya böler.
+// The detail page (and Chart.js with it) is loaded on first visit only, keeping login and the server list small.
 const NodeDetailPage = lazy(() => import('./pages/NodeDetailPage'))
 
-// Rota tablosu (C#'ta endpoint/controller yönlendirmesine benzer, ama TARAYICIDA çalışır:
-// sayfa yenilenmeden adres çubuğu ve ekran değişir). İç içe rotalar: RequireAuth giriş
-// kontrolünü, AppLayout çerçeveyi yapar; sayfa kendi <Outlet /> boşluğuna çizilir.
 export default function App() {
   return (
     <Routes>
@@ -28,7 +23,6 @@ export default function App() {
           <Route
             path="nodes/:id"
             element={
-              // Suspense: lazy bileşen inene kadar gösterilecek yedek içerik (yükleniyor ekranı).
               <Suspense
                 fallback={
                   <p className="page-message" role="status">

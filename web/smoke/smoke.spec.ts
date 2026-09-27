@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 const email = process.env.E2E_EMAIL
 const password = process.env.E2E_PASSWORD
 
-/** Sayfada CSP ihlali ve konsol hatası toplar. Boş kalması gerekir. */
+/** Collects CSP violations and console errors on the page; both must stay empty. */
 async function watchProblems(page: Page) {
   const problems: string[] = []
   await page.addInitScript(() => {
@@ -13,8 +13,8 @@ async function watchProblems(page: Page) {
   })
   page.on('console', (msg) => {
     if (msg.type() !== 'error') return
-    // Oturumsuzken uygulama açılışta GET /auth/me sorar ve 401 alır: TASARIM GEREĞİ; tarayıcı bunu
-    // konsola "Failed to load resource" diye yazar. Yalnızca o adres için yok sayılır, başka 401 sayılır.
+    // Without a session the app asks GET /auth/me on startup and gets 401 BY DESIGN; the browser logs that as
+    // "Failed to load resource". Only that URL is ignored; any other 401 counts.
     if (msg.text().includes('status of 401') && msg.location().url.endsWith('/api/v1/auth/me')) return
     problems.push(`console.error: ${msg.text()} (${msg.location().url})`)
   })
@@ -53,13 +53,13 @@ test.describe('duman testi: derlenmiş uygulama + nginx + server', () => {
     expect(h['x-content-type-options']).toBe('nosniff')
     expect(h['x-frame-options']).toBe('DENY')
     expect(h['referrer-policy']).toBe('no-referrer')
-    expect(h['server'] ?? '').not.toMatch(/\d/) // sürüm numarası sızmıyor
-    expect(h['cache-control']).toMatch(/no-cache|no-store|max-age=0/) // index.html önbelleğe alınmaz
+    expect(h['server'] ?? '').not.toMatch(/\d/) // no version number leaks
+    expect(h['cache-control']).toMatch(/no-cache|no-store|max-age=0/) // index.html is never cached
 
-    // Gerçek uygulama sorunsuz yüklendi (henüz kasıtlı ihlal yapılmadı).
+    // The real app loaded cleanly (before the deliberate violation below).
     expect(problems).toEqual([])
 
-    // CSP'nin GERÇEKTEN uygulandığının kanıtı: satır içi betik çalışmamalı.
+    // Proof that CSP is actually enforced: an inline script must not run.
     await page.evaluate(() => {
       const s = document.createElement('script')
       s.textContent = 'window.__inlineRan = true'
@@ -67,7 +67,6 @@ test.describe('duman testi: derlenmiş uygulama + nginx + server', () => {
     })
     expect(await page.evaluate(() => (window as unknown as { __inlineRan?: boolean }).__inlineRan)).toBeUndefined()
 
-    // Oturumsuz API 401 (nginx → server)
     expect((await request.get('/api/v1/nodes')).status()).toBe(401)
   })
 
@@ -88,7 +87,7 @@ test.describe('duman testi: derlenmiş uygulama + nginx + server', () => {
     expect(res.status()).toBe(200)
     expect(res.headers()['cache-control']).toContain('max-age=31536000')
     expect(res.headers()['content-encoding']).toBe('gzip')
-    // add_header miras kaybı yok: bu location'da da güvenlik başlıkları duruyor.
+    // No lost add_header inheritance: this location still has the security headers.
     expect(res.headers()['content-security-policy']).toContain("default-src 'self'")
 
     expect((await request.get('/assets/yok-boyle-dosya.js')).status()).toBe(404)
@@ -110,7 +109,8 @@ test.describe('duman testi: derlenmiş uygulama + nginx + server', () => {
       await expect(page.getByTestId('current-user')).toBeVisible()
       await expect(page.getByTestId('live-status')).toHaveText('Canlı')
 
-      // Bir node + ölçümler (agent gibi). node oluşturma oturum ister: tarayıcının çerezini API'ye de veriyoruz.
+      // A node and samples (like the agent). Creating a node needs a session, so the browser's cookie is
+      // shared with the API context.
       const cookies = await page.context().cookies()
       const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join('; ')
       const name = `smoke-${Math.random().toString(36).slice(2, 8)}`
@@ -142,7 +142,7 @@ test.describe('duman testi: derlenmiş uygulama + nginx + server', () => {
       await expect.poll(() => paintedPixels(page, '.chart-box canvas')).toBeGreaterThan(1000)
       await expect.poll(() => paintedPixels(page, '.gauge-canvas canvas')).toBeGreaterThan(200)
 
-      // Derin bağlantıyı YENİLE: nginx try_files → index.html, React yönlendirici yolu çözer.
+      // RELOAD a deep link: nginx try_files → index.html, and the router resolves the path.
       const reloaded = await page.reload()
       expect(reloaded?.status()).toBe(200)
       await expect(page.getByRole('heading', { level: 1, name })).toBeVisible()

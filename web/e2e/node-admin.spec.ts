@@ -5,12 +5,12 @@ import { expect, test } from './fixtures'
 const email = process.env.E2E_EMAIL
 const password = process.env.E2E_PASSWORD
 
-// Oturum: setup projesinin bir kez yazdığı çerez (kendi girişimizi yapmayız; bkz. e2e/auth-state.ts).
+// Session: the cookie written once by the setup project (see e2e/auth-state.ts).
 const storageState = USER1_STATE
 
 const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`
 
-/** Agent gibi (yalnızca Bearer anahtarla, çerez OLMADAN) tek ölçüm gönderir; HTTP kodunu döndürür. */
+/** Sends one sample like the agent (Bearer key only, NO cookie); returns the HTTP status. */
 async function ingest(baseURL: string | undefined, apiKey: string, cpu: number) {
   const agent = await request.newContext({ baseURL })
   const res = await agent.post('/api/v1/metrics', {
@@ -26,7 +26,7 @@ async function ingest(baseURL: string | undefined, apiKey: string, cpu: number) 
   return status
 }
 
-/** Arayüzden sunucu ekler ve bir kez gösterilen anahtarı okur. */
+/** Adds a server through the UI and reads the key that is shown once. */
 async function addNodeViaUI(page: Page, name: string, close = true): Promise<string> {
   await page.goto('/')
   await page.getByRole('button', { name: 'Sunucu ekle' }).click()
@@ -42,7 +42,7 @@ async function addNodeViaUI(page: Page, name: string, close = true): Promise<str
 
 async function closeKeyPanel(page: Page) {
   await page.getByRole('button', { name: 'Tamam, anahtarı kaydettim' }).click()
-  await expect(page.getByRole('textbox', { name: 'API anahtarı' })).toHaveCount(0) // anahtar ekrandan gitti
+  await expect(page.getByRole('textbox', { name: 'API anahtarı' })).toHaveCount(0) // the key is gone from the screen
 }
 
 test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () => {
@@ -53,20 +53,19 @@ test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () =>
     const page = await context.newPage()
     const name = uniqueName('e2e-ui-node')
 
-    const key = await addNodeViaUI(page, name, false) // panel açık kalsın: bağlantı göstergesi izlenecek
+    const key = await addNodeViaUI(page, name, false) // keep the panel open: its connection indicator is watched
     const card = page.getByTestId('node-card').filter({ hasText: name })
     await expect(card).toBeVisible()
     await expect(card.getByText('Henüz ölçüm yok')).toBeVisible()
     await expect(page.getByTestId('agent-status')).toHaveText(/Agent bekleniyor/)
-    await expect(page.getByText(/go -C agent run \.\/cmd\/agent/)).not.toContainText(key) // komutta anahtar YOK
+    await expect(page.getByText(/go -C agent run \.\/cmd\/agent/)).not.toContainText(key) // the command contains NO key
 
     expect(await ingest(baseURL, key, 33)).toBe(202)
-    await expect(page.getByTestId('agent-status')).toHaveText(/Agent bağlandı/, { timeout: 4000 }) // canlı akıştan
+    await expect(page.getByTestId('agent-status')).toHaveText(/Agent bağlandı/, { timeout: 4000 }) // from the live stream
     await closeKeyPanel(page)
     await expect(card.getByText('Çevrimiçi')).toBeVisible({ timeout: 12_000 })
     await expect(card.getByText('33,0 %')).toBeVisible()
 
-    // Temizlik: arayüzden sil.
     await card.getByRole('link', { name }).click()
     await page.getByRole('button', { name: 'Sunucuyu sil…' }).click()
     await page.getByLabel('Sunucu adı').fill(name)
@@ -84,7 +83,7 @@ test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () =>
     const name = uniqueName('e2e-silinecek')
     const key = await addNodeViaUI(admin, name)
 
-    // Bu sunucuya özel düşük eşikli kural (arayüzden) + bir ölçüm → açık alarm.
+    // A low-threshold rule scoped to this server (via the UI) + one sample → an open alert.
     const ruleName = uniqueName('e2e-silinecek-kural')
     await admin.goto('/alert-rules')
     await admin.getByLabel('Ad').fill(ruleName)
@@ -93,7 +92,8 @@ test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () =>
     await admin.getByRole('button', { name: 'Kural ekle' }).click()
     await expect(admin.getByTestId('rule-row').filter({ hasText: ruleName })).toBeVisible()
 
-    // İzleyici sekmeler: liste (REST DONDURULMUŞ: kartın kalkması ancak WebSocket olayından gelebilir) ve alarm panosu.
+    // Watching tabs: the list (REST FROZEN, so the card can only disappear via a WebSocket event) and the
+    // alert board.
     const list = await context.newPage()
     let frozen: string | undefined
     await list.route('**/api/v1/nodes', async (route) => {
@@ -111,7 +111,7 @@ test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () =>
     expect(await ingest(baseURL, key, 50)).toBe(202)
     await expect(alerts.getByTestId('alert-card').filter({ hasText: ruleName })).toBeVisible({ timeout: 4000 })
 
-    // Sil (detay sayfasından, adı yazarak).
+    // Delete from the detail page by typing the name.
     await admin.goto('/')
     await admin.getByTestId('node-card').filter({ hasText: name }).getByRole('link', { name }).click()
     await admin.getByRole('button', { name: 'Sunucuyu sil…' }).click()
@@ -121,13 +121,13 @@ test.describe('sunucu ekle / sil (gerçek tarayıcı + gerçek arka uç)', () =>
     await expect(admin).toHaveURL(/\/$/)
     await expect(admin.getByTestId('node-card').filter({ hasText: name })).toHaveCount(0)
 
-    // Diğer sekmeler yenilenmeden güncellendi.
+    // The other tabs updated without a reload.
     await expect(list.getByTestId('node-card').filter({ hasText: name })).toHaveCount(0, { timeout: 4000 })
     await expect(alerts.getByTestId('alert-card').filter({ hasText: ruleName })).toHaveCount(0, { timeout: 4000 })
     await alerts.getByRole('tab', { name: /Çözülen/ }).click()
-    await expect(alerts.getByTestId('alert-card').filter({ hasText: ruleName })).toHaveCount(0) // geçmiş de gitti
+    await expect(alerts.getByTestId('alert-card').filter({ hasText: ruleName })).toHaveCount(0) // history is gone too
 
-    // Sunucuya özel kural da gitti; eski anahtar artık geçersiz.
+    // The server-scoped rule is gone as well; the old key no longer works.
     await admin.goto('/alert-rules')
     await expect(admin.getByTestId('rule-row').filter({ hasText: ruleName })).toHaveCount(0)
     expect(await ingest(baseURL, key, 50)).toBe(401)

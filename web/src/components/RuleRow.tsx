@@ -7,12 +7,11 @@ import { formatCondition } from '../rules/format'
 
 interface RuleRowProps {
   rule: AlertRule
-  /** Kuralın uygulandığı sunucunun adı; `rule.node_id` null'sa (tüm sunucular) kullanılmaz. */
+  /** Name of the rule's server; unused when `rule.node_id` is null (all servers). */
   nodeName: string | null
   onChanged: () => void
 }
 
-/** Alarm kuralları tablosundaki tek satır: etkinleştir/devre dışı bırak ve onaylı silme. */
 export function RuleRow({ rule, nodeName, onChanged }: RuleRowProps) {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)

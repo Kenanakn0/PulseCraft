@@ -3,20 +3,19 @@ import { tr } from 'date-fns/locale/tr'
 import { clampPercent, gaugeLevel } from '../metrics/format'
 import type { ChartTheme } from './theme'
 
-/** Çizgi grafiğindeki bir seri (ör. "CPU"). */
 export interface LineSeries {
   label: string
   color: string
-  /** Sıralı noktalar; x = zaman (ms), y = değer. */
+  /** Sorted points; x = time (ms), y = value. */
   data: { x: number; y: number }[]
 }
 
-/** Chart.js'in decimation (LTTB) ile çizim için indireceği hedef nokta sayısı. */
+/** Target point count for Chart.js decimation (LTTB). */
 export const DECIMATION_SAMPLES = 300
 
 /**
- * Bu süreden uzun aralıklarla ayrılmış iki nokta ÇİZGİYLE BİRLEŞTİRİLMEZ (sunucu/agent kesintisi
- * boşluk olarak görünür; aksi halde kesinti sırasında yalancı, düz bir çizgi çizilirdi).
+ * Two points further apart than this are NOT joined by a line, so an outage shows as a gap instead of a
+ * misleading flat line.
  */
 export function gapThresholdMs(resolution: 'raw' | '1m'): number {
   return resolution === 'raw' ? 60_000 : 5 * 60_000
@@ -30,7 +29,7 @@ export function buildLineData(series: LineSeries[], resolution: 'raw' | '1m'): C
       borderColor: s.color,
       backgroundColor: s.color,
       borderWidth: 1.5,
-      pointRadius: 0, // binlerce noktayı tek tek işaretleme (hem yavaş hem karmaşık)
+      pointRadius: 0, // no marker per point (slow and cluttered with thousands of points)
       pointHoverRadius: 3,
       spanGaps: gapThresholdMs(resolution),
     })),
@@ -38,33 +37,30 @@ export function buildLineData(series: LineSeries[], resolution: 'raw' | '1m'): C
 }
 
 interface LineOptionsInput {
-  /** x ekseni sınırları (ms): SUNUCUnun döndürdüğü pencere. */
+  /** x-axis bounds (ms): the window returned by the SERVER. */
   from: number
   to: number
   theme: ChartTheme
-  /** y ekseni üst sınırı; verilmezse veriye göre otomatik (alt sınır her zaman 0). */
+  /** y-axis maximum; automatic when omitted (the minimum is always 0). */
   yMax?: number
   formatY: (value: number) => string
   showLegend: boolean
 }
 
 /**
- * y ekseninin SABİT genişliği (px). Chart.js ekseni etiketlerin uzunluğuna göre boyutlar: "100%" ile
- * "341,8 KB/s" farklı genişlikte olduğundan alt alta duran iki grafiğin çizim alanları (ve x eksenleri) kayıyordu.
- * En uzun etiket ("1.023,9 MB/s") bu genişliğe sığar.
+ * FIXED y-axis width (px). Chart.js sizes the axis by its label length ("100%" vs "341,8 KB/s"), which
+ * misaligned the plot areas of the stacked charts. The longest label ("1.023,9 MB/s") fits.
  */
 export const Y_AXIS_WIDTH = 84
 
 /**
- * Canlı güncellenen grafikler için seçenekler:
- *  - `animation: false`  → her güncellemede kayan/oynayan animasyon YOK
- *  - `parsing: false` + `normalized: true` → veri zaten {x,y} ve sıralı; Chart.js ayrıca ayrıştırma yapmaz
- *  - `decimation` (LTTB) → çok nokta varsa çizim yalnızca ~DECIMATION_SAMPLES noktayla yapılır
+ * Options for live-updating charts: no animation on updates; `parsing: false` + `normalized: true`
+ * because the data is already sorted {x, y}; LTTB decimation down to ~DECIMATION_SAMPLES points.
  */
 export function buildLineOptions({ from, to, theme, yMax, formatY, showLegend }: LineOptionsInput): ChartOptions<'line'> {
   return {
     responsive: true,
-    maintainAspectRatio: false, // yüksekliği kapsayıcı (CSS) belirler
+    maintainAspectRatio: false, // height comes from the container (CSS)
     animation: false,
     parsing: false,
     normalized: true,
@@ -87,7 +83,7 @@ export function buildLineOptions({ from, to, theme, yMax, formatY, showLegend }:
         ...(yMax === undefined ? {} : { max: yMax }),
         ticks: { color: theme.text, callback: (value) => formatY(Number(value)) },
         grid: { color: theme.grid },
-        // Etiket uzunluğundan bağımsız sabit genişlik: grafikler birbirinin altında HİZALI durur.
+        // Fixed width regardless of label length keeps stacked charts aligned.
         afterFit: (axis) => {
           axis.width = Y_AXIS_WIDTH
         },
@@ -103,7 +99,7 @@ export function buildLineOptions({ from, to, theme, yMax, formatY, showLegend }:
   }
 }
 
-/** Yarım daire gösterge (doughnut) verisi: dolu kısım eşiğe göre renklenir, kalanı "iz" rengindedir. */
+/** Half-doughnut gauge data: the filled part is coloured by threshold, the rest uses the track colour. */
 export function buildGaugeData(percent: number, theme: ChartTheme): ChartData<'doughnut', number[]> {
   const value = clampPercent(percent)
   return {
@@ -121,9 +117,9 @@ export const gaugeOptions: ChartOptions<'doughnut'> = {
   responsive: true,
   maintainAspectRatio: false,
   animation: false,
-  rotation: -90, // yarım daire: soldan başlar
+  rotation: -90, // half circle starting on the left
   circumference: 180,
   cutout: '72%',
-  events: [], // gösterge etkileşimsiz: fare olaylarını dinleme
+  events: [], // gauge is not interactive: ignore mouse events
   plugins: { legend: { display: false }, tooltip: { enabled: false } },
 }

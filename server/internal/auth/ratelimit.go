@@ -7,14 +7,12 @@ import (
 	"time"
 )
 
-// defaultMaxKeys: takip edilen en fazla farklı istemci sayısı (bellek koruması).
+// defaultMaxKeys bounds memory use.
 const defaultMaxKeys = 100_000
 
-// RateLimiter: anahtar (istemci IP'si) başına kayan pencere sınırlayıcı.
-// "Son window süresi içinde en fazla limit deneme" kuralını tam olarak uygular
-// (sabit pencerenin sınırda iki katı denemeye izin veren zayıflığı yoktur).
-// Reddedilen denemeler kaydedilmez; yani saldırgan sürekli denese de kilit
-// sonsuza uzamaz, pencere kayarak açılır.
+// RateLimiter is a sliding window per key (client IP): at most limit attempts in any window, without the
+// fixed-window weakness of allowing twice the limit around a boundary. Rejected attempts are not recorded,
+// so constant retrying does not extend the lockout forever.
 type RateLimiter struct {
 	mu      sync.Mutex
 	limit   int
@@ -34,8 +32,7 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 	}
 }
 
-// Allow: key için yeni bir denemeye izin varsa true döner ve denemeyi kaydeder.
-// İzin yoksa false ve tekrar denemek için beklenmesi gereken süreyi döner.
+// Allow records the attempt if allowed; otherwise it returns how long to wait.
 func (l *RateLimiter) Allow(key string) (bool, time.Duration) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -45,7 +42,7 @@ func (l *RateLimiter) Allow(key string) (bool, time.Duration) {
 
 	if len(recent) >= l.limit {
 		l.hits[key] = recent
-		if len(recent) == 0 { // limit <= 0: hiçbir denemeye izin yok
+		if len(recent) == 0 { // limit <= 0 allows nothing
 			return false, l.window
 		}
 		return false, recent[0].Add(l.window).Sub(now)
@@ -54,8 +51,7 @@ func (l *RateLimiter) Allow(key string) (bool, time.Duration) {
 	if _, known := l.hits[key]; !known && len(l.hits) >= l.maxKeys {
 		l.cleanupLocked(now)
 		if len(l.hits) >= l.maxKeys {
-			// Bellek koruması: çok fazla farklı istemci varken yeni gelenleri
-			// reddediyoruz (kapalı-başarısız). Gerçekçi bir yük değildir.
+			// Too many distinct clients: reject new ones (fail closed) rather than grow without bound.
 			return false, l.window
 		}
 	}
@@ -64,7 +60,6 @@ func (l *RateLimiter) Allow(key string) (bool, time.Duration) {
 	return true, 0
 }
 
-// Cleanup: penceresi tamamen geçmiş (boşta) anahtarları siler.
 func (l *RateLimiter) Cleanup() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -80,7 +75,6 @@ func (l *RateLimiter) cleanupLocked(now time.Time) {
 	}
 }
 
-// Run: interval aralığıyla Cleanup çağırır; ctx iptal edilince durur.
 func (l *RateLimiter) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -95,7 +89,7 @@ func (l *RateLimiter) Run(ctx context.Context, interval time.Duration) {
 	}
 }
 
-// prune: cutoff'tan ESKİ kayıtları atar (times zamana göre sıralıdır).
+// prune drops entries older than cutoff (times are sorted).
 func prune(times []time.Time, cutoff time.Time) []time.Time {
 	i := 0
 	for i < len(times) && !times[i].After(cutoff) {
@@ -104,10 +98,8 @@ func prune(times []time.Time, cutoff time.Time) []time.Time {
 	return times[i:]
 }
 
-// RateKey: IP'yi sınırlayıcı anahtarına çevirir. IPv6'da tek bir kullanıcı
-// genellikle koca bir /64 bloğuna sahiptir; adres başına saymak, saldırganın her
-// denemede blok içinden yeni bir adres seçip limiti atlatmasına izin verirdi.
-// Bu yüzden IPv6 adresleri /64 önekine indirgenir.
+// RateKey reduces IPv6 addresses to their /64: a single user usually controls a whole /64, and counting
+// per address would let an attacker pick a new address for every attempt.
 func RateKey(addr netip.Addr) string {
 	if !addr.IsValid() {
 		return "bilinmiyor"

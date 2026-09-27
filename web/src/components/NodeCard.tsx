@@ -3,7 +3,6 @@ import type { NodeSummary } from '../api/types'
 import { formatAge, formatPercent } from '../nodes/format'
 import { StatusBadge } from './StatusBadge'
 
-// PROPS: bileşene dışarıdan verilen, bileşenin DEĞİŞTİREMEDİĞİ girdiler (C#/Blazor'da [Parameter]).
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="metric">
@@ -13,17 +12,18 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
-/** Tek bir sunucunun özet kartı; tıklayınca detay sayfasına gider. */
 export function NodeCard({ node }: { node: NodeSummary }) {
-  // Boş/null parçaları ele: hostname ve OS'nin ikisi de yoksa tire göster.
+  // Drop empty parts; a dash if neither hostname nor OS is known.
   const meta = [node.hostname, node.os].filter((part): part is string => part !== null && part !== '')
 
   return (
     <article className="card node-card" data-testid="node-card" data-online={node.online}>
       <header className="node-card-head">
         <h2 className="node-name">
-          {/* Bağlantı yalnızca başlıkta (ekran okuyucular için tek, anlamlı bir bağlantı); CSS'teki
-              ::after ile tıklama alanı tüm karta yayılır. */}
+          {/*
+           * Only the title is a link (one meaningful link for screen readers); CSS ::after stretches the click
+           * area over the whole card.
+           */}
           <Link to={`/nodes/${encodeURIComponent(node.id)}`} className="node-link">
             {node.name}
           </Link>

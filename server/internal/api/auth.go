@@ -15,10 +15,8 @@ import (
 	"github.com/Kenanakn0/pulsecraft/server/internal/auth"
 )
 
-// sessionCookieName: JWT'yi taşıyan cookie'nin adı.
 const sessionCookieName = "pulsecraft_session"
 
-// maxLoginBody: login gövdesi için üst sınır (bellek tüketimi saldırılarına karşı).
 const maxLoginBody = 4 << 10
 
 type loginRequest struct {
@@ -26,17 +24,14 @@ type loginRequest struct {
 	Password string `json:"password"`
 }
 
-// UserInfo: istemciye dönen kullanıcı bilgisi (parola/hash asla dönmez).
 type UserInfo struct {
 	ID          int64  `json:"id"`
 	Email       string `json:"email"`
 	DisplayName string `json:"display_name"`
 }
 
-// handleLogin: e-posta + parola ile giriş yapar, JWT'yi httpOnly cookie'ye koyar.
-//
-// Sıra bilinçli: önce rate limit (bcrypt gibi pahalı işlerden ve DB'den ÖNCE),
-// sonra gövde doğrulaması, sonra kimlik doğrulama.
+// handleLogin: the order is deliberate. The rate limit comes first (before bcrypt and the database),
+// then body validation, then authentication.
 func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	ip := a.ClientIP.ClientIP(r)
 	if ok, retryAfter := a.LoginLimiter.Allow(auth.RateKey(ip)); !ok {
@@ -78,9 +73,8 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Kullanıcı bulunamasa da sahte hash'le tam bir bcrypt karşılaştırması
-	// yapılır (bkz. auth.VerifyPassword): iki durumda da yanıt süresi ve mesajı
-	// aynı, kayıtlı e-postalar sızmaz.
+	// An unknown user still costs a full bcrypt comparison (see auth.VerifyPassword): both failures take the
+	// same time and return the same message, so registered e-mail addresses do not leak.
 	if !auth.VerifyPassword(hash, found, req.Password) {
 		slog.Warn("giriş başarısız", "ip", ip.String())
 		http.Error(w, "e-posta veya parola hatalı", http.StatusUnauthorized)
@@ -101,9 +95,8 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleLogout: token'ın jti'sini denylist'e yazar (süresi dolana dek geçersiz)
-// ve cookie'yi siler. Oturum yoksa/geçersizse de cookie silinip 204 dönülür
-// (idempotent).
+// handleLogout revokes the token's jti until it expires and deletes the cookie. It is idempotent: without
+// a valid session it still deletes the cookie and returns 204.
 func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookieName); err == nil {
 		if claims, err := a.Tokens.Parse(c.Value); err == nil {
@@ -116,7 +109,6 @@ func (a *API) handleLogout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// handleMe: oturumdaki kullanıcıyı döner (requireAuth arkasında çalışır).
 func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 	claims, ok := auth.ClaimsFromContext(r.Context())
 	if !ok {
@@ -129,9 +121,8 @@ func (a *API) handleMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// requireAuth: geçerli, süresi dolmamış ve iptal edilmemiş bir oturum cookie'si
-// yoksa 401 döner; varsa kullanıcıyı (claims) context'e koyup devam eder —
-// C#'taki [Authorize] + HttpContext.User karşılığı.
+// requireAuth rejects requests without a valid, unexpired and unrevoked session cookie, and puts the
+// claims into the request context.
 func (a *API) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := r.Cookie(sessionCookieName)
@@ -142,7 +133,7 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 
 		claims, err := a.Tokens.Parse(c.Value)
 		if err != nil || a.Denylist.IsRevoked(claims.ID) {
-			// Tarayıcı geçersiz cookie'yi göndermeyi bıraksın diye siliyoruz.
+			// Make the browser stop sending the invalid cookie.
 			http.SetCookie(w, a.expiredSessionCookie())
 			http.Error(w, "oturum gerekli", http.StatusUnauthorized)
 			return
@@ -152,10 +143,8 @@ func (a *API) requireAuth(next http.Handler) http.Handler {
 	})
 }
 
-// newSessionCookie: JWT'yi taşıyan cookie.
-//   - HttpOnly: JavaScript okuyamaz (XSS ile token çalınamaz)
-//   - SameSite=Strict: başka sitelerden gelen isteklerde gönderilmez (CSRF)
-//   - Secure: yalnızca HTTPS'te gönderilir (COOKIE_SECURE ile açılır)
+// newSessionCookie: HttpOnly keeps the token away from JavaScript (XSS), SameSite=Strict blocks
+// cross-site requests, Secure is enabled with COOKIE_SECURE behind HTTPS.
 func (a *API) newSessionCookie(token string, expiresAt time.Time) *http.Cookie {
 	return &http.Cookie{
 		Name:     sessionCookieName,
@@ -169,7 +158,6 @@ func (a *API) newSessionCookie(token string, expiresAt time.Time) *http.Cookie {
 	}
 }
 
-// expiredSessionCookie: tarayıcıya cookie'yi silmesini söyler (MaxAge < 0).
 func (a *API) expiredSessionCookie() *http.Cookie {
 	return &http.Cookie{
 		Name:     sessionCookieName,
@@ -182,7 +170,7 @@ func (a *API) expiredSessionCookie() *http.Cookie {
 	}
 }
 
-// writeAuthJSON: kimlik bilgisi içeren yanıtların önbelleğe alınmasını engeller.
+// writeAuthJSON prevents caching of responses that contain identity data.
 func writeAuthJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Cache-Control", "no-store")
 	writeJSON(w, status, v)

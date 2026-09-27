@@ -18,16 +18,14 @@ import (
 	"github.com/Kenanakn0/pulsecraft/server/internal/realtime"
 )
 
-// shortRangeThreshold: bu süreden kısa aralıklar ham `metrics` tablosundan,
-// daha uzun aralıklar `metrics_1m` özet görünümünden okunur.
+// shortRangeThreshold: shorter ranges read raw metrics, longer ones the 1-minute aggregate.
 const shortRangeThreshold = 3 * time.Hour
 
 // maxSamplesPerRequest leaves ample room above the agent's 1000-sample buffer.
 const maxSamplesPerRequest = 5000
 
-// metricSample: agent'ın gönderdiği bir örnek. Alan adları/JSON etiketleri
-// agent/internal/collector.Sample ile BİREBİR aynı tutulmalı — bu, iki ayrı
-// modül (agent, server) arasındaki JSON "sözleşmesi".
+// metricSample must match agent/internal/collector.Sample field by field: it is the JSON contract
+// between the two modules.
 type metricSample struct {
 	Time         time.Time `json:"time"`
 	CPUPercent   float64   `json:"cpu_percent"`
@@ -40,14 +38,11 @@ type metricSample struct {
 }
 
 type metricsRequest struct {
-	// Hostname isteğe bağlıdır: agent yalnızca -hostname / PULSECRAFT_HOSTNAME
-	// verildiyse gönderir; varsayılan olarak GÖNDERİLMEZ (gerçek bilgisayar adı sızmasın).
+	// Hostname is only sent when the agent is configured with one (never an automatically detected name).
 	Hostname *string        `json:"hostname"`
 	Samples  []metricSample `json:"samples"`
 }
 
-// handleIngestMetrics: Authorization: Bearer <key> ile kimlik doğrular,
-// samples'ı doğrular, toplu insert yapar ve node'un last_seen_at'ini günceller.
 func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 	apiKey, ok := bearerToken(r)
 	if !ok {
@@ -92,11 +87,11 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if skipped := int64(len(req.Samples)) - inserted; skipped > 0 {
-		// Beklenen durum (agent'ın yeniden gönderimi): hata değil, yalnızca bilgi.
+		// Expected after an agent retry: informational, not an error.
 		slog.Info("mükerrer örnekler atlandı", "node_id", nodeID, "gelen", len(req.Samples), "atlanan", skipped)
 	}
 
-	// Geçersiz hostname ölçümleri REDDETMEZ: uyarıyla yok sayılır (nil → COALESCE mevcut değeri korur).
+	// An invalid hostname does not reject the samples; it is ignored (nil keeps the stored value).
 	var hostname *string
 	if req.Hostname != nil {
 		if h, err := normalizeHostname(*req.Hostname); err != nil {
@@ -109,13 +104,11 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 	if _, err := a.DB.Exec(r.Context(),
 		`UPDATE nodes SET last_seen_at = now(), hostname = COALESCE($2, hostname) WHERE id = $1`,
 		nodeID, hostname); err != nil {
-		// Metrikler zaten kaydedildi; last_seen_at güncellemesi başarısız olsa
-		// bile isteği başarısız saymaya değmez, sadece logluyoruz.
+		// The samples are already stored; a failed last_seen_at update is not worth failing the request.
 		slog.Error("last_seen_at güncellenemedi", "err", err)
 	}
 
-	// Alarm değerlendirmesi: istemci bağlantıyı kesse bile yarım kalmasın diye
-	// iptal edilmeyen bir context kullanıyoruz (context.WithoutCancel, Go 1.21+).
+	// Alert evaluation must not be cut short when the client disconnects.
 	bgCtx := context.WithoutCancel(r.Context())
 
 	alertSamples := make([]alerting.Sample, len(req.Samples))
@@ -132,11 +125,9 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Canlı yayına istek başına SADECE en yeni örnek gider. Agent, sunucu
-	// kesintisi sonrası yüzlerce birikmiş örneği tek istekte boşaltabilir;
-	// hepsini yayınlamak WebSocket istemci kuyruklarını taşırıp sağlıklı
-	// istemcileri de düşürür. Geçmiş veri zaten REST ile okunuyor, alarm
-	// motoru ise (aşağıda) tüm örnekleri değerlendirmeye devam ediyor.
+	// Broadcast only the newest sample per request. After an outage the agent may flush hundreds of samples
+	// at once; broadcasting them all would overflow WebSocket client queues and drop healthy clients. History
+	// is read over REST, and the alert engine still evaluates every sample.
 	s := req.Samples[newest]
 	a.Pub.PublishMetrics([]realtime.MetricEvent{{
 		NodeID: nodeID, Time: s.Time,
@@ -149,8 +140,6 @@ func (a *API) handleIngestMetrics(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// bearerToken: Authorization başlığından "Bearer <token>" formatındaki
-// token'ı çıkarır.
 func bearerToken(r *http.Request) (string, bool) {
 	header := r.Header.Get("Authorization")
 	const prefix = "Bearer "
@@ -160,8 +149,7 @@ func bearerToken(r *http.Request) (string, bool) {
 	return strings.TrimPrefix(header, prefix), true
 }
 
-// authenticateNode: verilen API key'in hash'ini alıp aktif bir node'a ait
-// olup olmadığını kontrol eder, node id'sini döndürür.
+// authenticateNode looks up the node by the SHA-256 hash of the API key.
 func (a *API) authenticateNode(ctx context.Context, apiKey string) (string, error) {
 	hash := hashAPIKey(apiKey)
 
@@ -176,17 +164,12 @@ func (a *API) authenticateNode(ctx context.Context, apiKey string) (string, erro
 	return nodeID, nil
 }
 
-// insertSamples: samples'ı pgx.CopyFrom ile TEK bir toplu (batch) işlemde
-// ekler — PostgreSQL'in COPY protokolünü kullanır, satır satır INSERT'ten
-// çok daha hızlıdır (C#'taki SqlBulkCopy'nin karşılığı).
-// insertSamplesSQL: tüm örnekleri TEK sorguda yazar. Her sütun bir dizi parametre olarak gelir, unnest onları
-// satırlara açar (C#'ta Npgsql ile dizi parametresi + unnest toplu insert deseni). COPY (pgx.CopyFrom) ON CONFLICT
-// desteklemediği için bu yola geçildi.
+// insertSamplesSQL writes all samples in one query: each column arrives as an array parameter and unnest
+// turns them into rows. COPY was replaced because it cannot skip conflicts.
 //
-// ON CONFLICT DO NOTHING bilerek HEDEFSİZ: şemadaki (node_id, time) unique indeksine çarpan mükerrer örnekler
-// (agent zaman aşımı sonrası aynı batch'i yeniden gönderince ya da tek istekte aynı zaman iki kez gelince)
-// sessizce atlanır. Hedef sütun yazılmadığı için unique indeksi HENÜZ olmayan eski bir veritabanında da çalışır
-// (orada mükerrer engellenmez ama ingest bozulmaz).
+// ON CONFLICT DO NOTHING is deliberately target-less: duplicates hitting the (node_id, time) unique index
+// (an agent retry, or the same timestamp twice in one request) are skipped, and the query still works on
+// older databases without that index (where duplicates are simply not prevented).
 const insertSamplesSQL = `
 INSERT INTO metrics (time, node_id, cpu_percent, mem_percent, mem_used_bytes,
                      disk_percent, net_rx_bps, net_tx_bps, load1)
@@ -196,14 +179,14 @@ FROM unnest($2::timestamptz[], $3::float8[], $4::float8[], $5::int8[],
      AS s(t, cpu, mem, mem_used, disk, rx, tx, load1)
 ON CONFLICT DO NOTHING`
 
-// insertSamples: örnekleri yazar ve gerçekten eklenen satır sayısını döndürür (mükerrerler sayılmaz).
+// insertSamples returns the number of rows actually inserted (duplicates excluded).
 func (a *API) insertSamples(ctx context.Context, nodeID string, samples []metricSample) (int64, error) {
 	n := len(samples)
 	var (
 		times           = make([]time.Time, n)
 		cpu, mem, disk  = make([]float64, n), make([]float64, n), make([]float64, n)
 		memUsed, rx, tx = make([]int64, n), make([]int64, n), make([]int64, n)
-		load1           = make([]*float64, n) // NULL olabilir (Windows)
+		load1           = make([]*float64, n) // may be NULL
 	)
 	for i, s := range samples {
 		times[i], cpu[i], mem[i], disk[i] = s.Time, s.CPUPercent, s.MemPercent, s.DiskPercent
@@ -217,7 +200,6 @@ func (a *API) insertSamples(ctx context.Context, nodeID string, samples []metric
 	return tag.RowsAffected(), nil
 }
 
-// rawPoint: `metrics` tablosundan (ham veri) dönen bir nokta.
 type rawPoint struct {
 	Time         time.Time `json:"time"`
 	CPUPercent   float64   `json:"cpu_percent"`
@@ -229,8 +211,6 @@ type rawPoint struct {
 	Load1        *float64  `json:"load1,omitempty"`
 }
 
-// aggPoint: `metrics_1m` özet görünümünden (1 dakikalık ortalama/maksimum)
-// dönen bir nokta.
 type aggPoint struct {
 	Time     time.Time `json:"time"`
 	CPUAvg   float64   `json:"cpu_avg"`
@@ -242,16 +222,13 @@ type aggPoint struct {
 	NetTxAvg float64   `json:"net_tx_avg"`
 }
 
-// metricsRangeResponse: GET /api/v1/nodes/{id}/metrics yanıtı.
 type metricsRangeResponse struct {
-	Resolution string    `json:"resolution"` // "raw" ya da "1m"
+	Resolution string    `json:"resolution"`
 	From       time.Time `json:"from"`
 	To         time.Time `json:"to"`
 	Points     any       `json:"points"`
 }
 
-// handleGetNodeMetrics: aralık kısaysa ham metrics tablosundan, uzunsa
-// metrics_1m özet görünümünden okur.
 func (a *API) handleGetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	nodeID := chi.URLParam(r, "id")
 
@@ -286,19 +263,14 @@ func (a *API) handleGetNodeMetrics(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// Aralık sınırları: "last" parametresi için en az/en fazla süre.
 const (
 	minLastRange = time.Minute
-	maxLastRange = 30 * 24 * time.Hour // ham veri saklama süresiyle aynı
+	maxLastRange = 30 * 24 * time.Hour // same as the raw data retention
 )
 
-// resolveRange: sorgu aralığını belirler. İKİ biçim vardır ve birlikte kullanılamaz:
-//
-//   - last=15m|1h|6h|24h… (Go süre biçimi): pencere SUNUCU saatine göre "şimdi - last .. şimdi"
-//     olur. Tarayıcı saati yanlış olsa da doğru pencere gelir; arayüz bunu kullanır.
-//   - from/to (RFC3339): mutlak aralık.
-//
-// Hiçbiri verilmezse son 1 saat. now, testlerde sabit bir an verebilmek için parametredir.
+// resolveRange accepts one of two forms. last=15m|1h|… (a Go duration) builds the window from the SERVER
+// clock, so a wrong browser clock cannot shift it; the UI uses this. from/to (RFC 3339) is an absolute
+// range. Without either, the last hour. now is a parameter for tests.
 func resolveRange(q url.Values, now time.Time) (from, to time.Time, err error) {
 	if last := q.Get("last"); last != "" {
 		if q.Get("from") != "" || q.Get("to") != "" {

@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 const email = process.env.E2E_EMAIL
 const password = process.env.E2E_PASSWORD
 
-// Görsel kontrol için ekran görüntüleri (git'e girmez; README görselleri 4.3'te bilinçli alınır).
+// Screenshots for manual inspection (git-ignored).
 const shot = (name: string) => `e2e/screenshots/${name}.png`
 
 test.describe('kimlik doğrulama akışı (gerçek tarayıcı + gerçek arka uç)', () => {
@@ -42,28 +42,25 @@ test.describe('kimlik doğrulama akışı (gerçek tarayıcı + gerçek arka uç
     await expect(page.getByTestId('current-user')).not.toBeEmpty()
     await page.screenshot({ path: shot('03-panel') })
 
-    // Cookie: httpOnly + SameSite=Strict; sayfadaki JavaScript onu okuyamaz.
+    // The cookie is httpOnly + SameSite=Strict; page JavaScript cannot read it.
     const cookie = (await context.cookies()).find((c) => c.name === 'pulsecraft_session')
     expect(cookie, 'oturum cookie\'si').toBeDefined()
     expect(cookie?.httpOnly).toBe(true)
     expect(cookie?.sameSite).toBe('Strict')
     expect(await page.evaluate(() => document.cookie)).not.toContain('pulsecraft_session')
 
-    // Sayfa yenilenince oturum cookie'den geri gelir (GET /auth/me).
     await page.reload()
     await expect(page.getByRole('heading', { name: 'Sunucular' })).toBeVisible()
 
-    // Çıkış.
     await page.getByRole('button', { name: 'Çıkış' }).click()
     await expect(page).toHaveURL(/\/login$/)
 
-    // Çıkıştan sonra korumalı sayfaya doğrudan gitmek yine /login'e döner.
     await page.goto('/')
     await expect(page).toHaveURL(/\/login$/)
   })
 
   test('girişliyken /login paneli açar; girişten sonra istenen sayfaya dönülür', async ({ page }) => {
-    // Girişsiz iken bilinmeyen bir derin bağlantı → /login → giriş → panel ("*" kuralı).
+    // An unknown deep link without a session → /login → sign in → dashboard (the "*" route).
     await page.goto('/bir/derin/baglanti')
     await expect(page).toHaveURL(/\/login$/)
     await page.getByLabel('E-posta').fill(email!)

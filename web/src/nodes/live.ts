@@ -2,12 +2,12 @@ import type { NodeLatest, NodeSummary } from '../api/types'
 import type { MetricEvent } from '../realtime/events'
 
 /**
- * Bir sunucudan canlı akışta ölçüm gelmeyince, bu kadar ms sonra (ZAMANLAYICIYLA, duvar saati farkıyla
- * DEĞİL) sunucu çevrimdışı işaretlenir. Sunucudaki `onlineThreshold` (15 sn) ile aynıdır.
+ * Without a live sample for this long, a server is marked offline by a TIMER (not by comparing wall
+ * clocks). Same as the server's onlineThreshold (15 s).
  */
 export const LIVE_ONLINE_MS = 15_000
 
-/** Canlı akıştan öğrenilen, henüz REST listesine yansımamış olabilecek durum. */
+/** State learned from the live stream that the REST list may not reflect yet. */
 export interface LiveEntry {
   latest: NodeLatest
   online: boolean
@@ -28,9 +28,9 @@ export function eventToLatest(ev: MetricEvent): NodeLatest {
 }
 
 /**
- * REST listesini canlı olaylarla birleştirir. KURAL: hangisinin ölçümü DAHA YENİYSE (ölçüm zamanına
- * göre; iki taraf da sunucu/agent zamanı, tarayıcı saati değil) o kazanır. REST cevabı canlı olaydan
- * yeni ya da aynıysa sunucunun hesabı (online dahil) aynen kullanılır. Girdileri DEĞİŞTİRMEZ.
+ * Merges the REST list with live events. Rule: the side with the NEWER sample wins (by sample time, from
+ * the server/agent, never the browser clock). If REST is newer or equal, the server's view (including
+ * `online`) is used as is. Does not mutate its inputs.
  */
 export function mergeLive(nodes: readonly NodeSummary[], live: LiveMap): NodeSummary[] {
   if (Object.keys(live).length === 0) return [...nodes]

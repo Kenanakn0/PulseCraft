@@ -13,8 +13,8 @@ interface MetricsPanelProps {
 }
 
 /**
- * Seçili aralığın geçmiş grafikleri. Üst bileşen bunu `key={`${nodeId}:${rangeId}`}` ile çizer:
- * sunucu ya da aralık değişince panel sıfırdan kurulur (yükleme durumu temiz başlar).
+ * History charts of the selected range. The parent renders it with `key={`${nodeId}:${rangeId}`}`, so a new
+ * server or range starts from a clean loading state.
  */
 export function MetricsPanel({ nodeId, rangeId }: MetricsPanelProps) {
   const { state, reload } = useNodeMetrics(nodeId, rangeId)

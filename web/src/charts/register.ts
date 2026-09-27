@@ -11,11 +11,10 @@ import {
   TimeScale,
   Tooltip,
 } from 'chart.js'
-// Yan etki içe aktarması: zaman ekseninin tarih işlemleri için date-fns bağdaştırıcısını Chart.js'e tanıtır.
+// Side-effect import: registers the date-fns adapter used by the time axis.
 import 'chartjs-adapter-date-fns'
 
-// Chart.js'i yalnızca kullandığımız parçalarla kaydediyoruz (tam paketi değil): çıktı boyutu küçük kalır.
-// (C#'ta yalnızca gereken servisleri DI'a kaydetmek gibi.) Modül bir kez yüklenince çalışır.
+// Register only the Chart.js parts in use (not the whole bundle) to keep the output small.
 Chart.register(
   LineController,
   LineElement,

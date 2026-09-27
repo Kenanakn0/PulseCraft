@@ -9,7 +9,7 @@ describe('validateNodeName', () => {
   it('karakteri (bayt değil) sayar: 100 çok baytlı harf geçerli, 101 geçersiz', () => {
     expect(validateNodeName('ş'.repeat(MAX_NODE_NAME))).toBeNull()
     expect(validateNodeName('ş'.repeat(MAX_NODE_NAME + 1))).toBe('Sunucu adı en fazla 100 karakter olabilir.')
-    // Emoji JS'te 2 UTF-16 birimidir ama tek karakterdir (sunucu da tek "rune" sayar).
+    // An emoji is two UTF-16 units in JS but one character (the server counts one rune too).
     expect(validateNodeName('😀'.repeat(MAX_NODE_NAME))).toBeNull()
   })
 

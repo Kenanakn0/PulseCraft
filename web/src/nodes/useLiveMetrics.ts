@@ -3,15 +3,14 @@ import { useRealtimeEvents } from '../realtime/useRealtime'
 import { eventToLatest, LIVE_ONLINE_MS, type LiveMap } from './live'
 
 /**
- * Canlı "metric" olaylarından sunucu başına son durumu tutar ve her sunucu için bir sessizlik
- * zamanlayıcısı işletir: `onlineMs` (varsayılan LIVE_ONLINE_MS) boyunca yeni olay gelmezse o sunucu çevrimdışı olur.
- * Olaylar EKSİK/GEÇ/TEKRARLI gelebilir (bkz. docs/decisions.md "Real-time delivery"); bu yüzden her olay,
- * o sunucunun bildiği en yeni ölçümden ESKİ ya da aynıysa yok sayılır (idempotent).
+ * Keeps the latest state per server from live "metric" events and runs a silence timer per server:
+ * without an event for `onlineMs` (default LIVE_ONLINE_MS) the server turns offline. Events can be missing,
+ * late or repeated (see docs/decisions.md "Real-time delivery"), so an event not newer than the latest
+ * known sample of that server is ignored (idempotent).
  */
 export function useLiveMetrics(onlineMs: number = LIVE_ONLINE_MS): LiveMap {
   const [live, setLive] = useState<LiveMap>({})
 
-  // Ref'ler: render etmeyen yardımcı durum (C#'ta özel alanlar).
   const lastTime = useRef(new Map<string, number>())
   const timers = useRef(new Map<string, ReturnType<typeof setTimeout>>())
 
@@ -37,7 +36,7 @@ export function useLiveMetrics(onlineMs: number = LIVE_ONLINE_MS): LiveMap {
     setLive((current) => ({ ...current, [id]: { latest: eventToLatest(event), online: true } }))
   })
 
-  // Bileşen kalkarken bekleyen zamanlayıcıları temizle (Dispose).
+  // Clear pending timers on unmount.
   useEffect(() => {
     const pending = timers.current
     return () => {

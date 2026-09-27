@@ -5,7 +5,7 @@ import { jsonResponse, stubFetch, textResponse } from '../test/fetchStub'
 import { makeNode } from '../test/fixtures'
 import { useNodes } from './useNodes'
 
-// Geliştirmedeki gibi <StrictMode> içinde çalıştır: effect'ler iki kez kurulup temizlenir.
+// Inside <StrictMode>, like in development: effects are set up, cleaned up and set up again.
 const strict = ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>
 
 const nodesCalls = (calls: { path: string }[]) => calls.filter((c) => c.path === '/api/v1/nodes').length
@@ -37,9 +37,9 @@ describe('useNodes', () => {
 
     unmount()
     const afterUnmount = nodesCalls(calls)
-    await new Promise((resolve) => setTimeout(resolve, 150)) // ~5 aralık boyunca bekle
+    await new Promise((resolve) => setTimeout(resolve, 150)) // wait ~5 intervals
 
-    expect(nodesCalls(calls)).toBe(afterUnmount) // yeni istek atılmadı
+    expect(nodesCalls(calls)).toBe(afterUnmount) // no new request was sent
   })
 
   it('yavaş yanıtta istekler üst üste binmez', async () => {
@@ -49,7 +49,7 @@ describe('useNodes', () => {
       'GET /api/v1/nodes': async () => {
         inflight++
         maxInflight = Math.max(maxInflight, inflight)
-        await new Promise((resolve) => setTimeout(resolve, 60)) // aralıktan (10 ms) çok daha yavaş
+        await new Promise((resolve) => setTimeout(resolve, 60)) // much slower than the 10 ms interval
         inflight--
         return jsonResponse([makeNode()])
       },
@@ -90,8 +90,7 @@ describe('useNodes', () => {
   })
 
   it('yükleme sonrası bir yenileme başarısız olursa verileri korur, sonraki başarıda uyarıyı temizler', async () => {
-    // Hata, testin bayrağı kapatmasına kadar SÜRER; böylece kısa bir hata penceresini
-    // yoklamayla kaçırma (kararsız test) riski olmaz.
+    // The error LASTS until the test clears the flag, so polling cannot miss a short error window (flakiness).
     let failing = false
     let call = 0
     stubFetch({
@@ -106,15 +105,15 @@ describe('useNodes', () => {
     const { result } = renderHook(() => useNodes(40))
     await waitFor(() => expect(result.current.state.status).toBe('ready'))
 
-    // Yenileme başarısız oluyor: eski veri korunur, uyarı görünür.
+    // The refresh fails: the old data stays and a warning shows.
     failing = true
     await waitFor(() =>
       expect(result.current.state).toMatchObject({ status: 'ready', refreshError: 'Sunucu listesi alınamadı (HTTP 503).' }),
     )
     const keptName = nameOf(result.current.state)
-    expect(keptName).toMatch(/^v\d+$/) // hâlâ bir önceki başarılı yanıtın verisi
+    expect(keptName).toMatch(/^v\d+$/) // still the data of the previous successful response
 
-    // Sunucu düzeldi: uyarı kalkar ve veri yenilenir.
+    // The server recovered: the warning goes away and the data refreshes.
     failing = false
     await waitFor(() => expect(result.current.state).toMatchObject({ status: 'ready', refreshError: null }))
     await waitFor(() => expect(nameOf(result.current.state)).not.toBe(keptName))

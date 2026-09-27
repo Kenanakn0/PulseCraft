@@ -12,7 +12,6 @@ const rulesRoutes = (getRules: () => ReturnType<typeof makeRule>[]) => ({
   'GET /api/v1/nodes': () => jsonResponse([makeNode({ id: 'n1', name: 'web-01' }), makeNode({ id: 'n2', name: 'db-01' })]),
 })
 
-/** Adına göre kural satırını bulur. */
 const ruleRow = (name: string) => screen.getAllByTestId('rule-row').find((r) => within(r).queryByText(name) !== null)!
 
 describe('RulesPage', () => {
@@ -86,13 +85,13 @@ describe('RulesPage', () => {
 
     await user.type(screen.getByLabelText('Ad'), 'Test alarmı')
     await user.selectOptions(screen.getByLabelText('Sunucu'), 'web-01')
-    // Eşik BİLEREK boş bırakılıyor (varsayılan '') — kullanıcının bildirdiği tam senaryo.
+    // The threshold is DELIBERATELY left empty (default '') — the exact scenario a user reported.
     await user.click(screen.getByRole('button', { name: 'Kural ekle' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('Eşik geçerli bir sayı olmalı.')
-    expect(calls.some((c) => c.method === 'POST')).toBe(false) // sessiz değil: istek hiç gitmedi
-    expect(screen.getByText('Henüz kural yok. Yukarıdan bir tane ekleyin.')).toBeInTheDocument() // tablo doğru şekilde değişmedi
-    expect(screen.getByLabelText('Ad')).toHaveValue('Test alarmı') // girilenler kaybolmadı
+    expect(calls.some((c) => c.method === 'POST')).toBe(false) // not silent: no request was sent
+    expect(screen.getByText('Henüz kural yok. Yukarıdan bir tane ekleyin.')).toBeInTheDocument() // the table did not change
+    expect(screen.getByLabelText('Ad')).toHaveValue('Test alarmı') // the input was not lost
   })
 
   it('form: başarılı ekleme sonrası temizlenir ve liste yenilenir', async () => {
@@ -180,7 +179,7 @@ describe('RulesPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Vazgeç' }))
     expect(screen.queryByText(/Geçmiş alarmlar da silinir/)).not.toBeInTheDocument()
-    expect(calls.some((c) => c.method === 'DELETE')).toBe(false) // vazgeçmek silmedi
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false) // cancelling did not delete
 
     await user.click(screen.getByRole('button', { name: 'Sil' }))
     await user.click(screen.getByRole('button', { name: 'Evet, sil' }))

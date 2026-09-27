@@ -2,12 +2,9 @@ package auth
 
 import "golang.org/x/crypto/bcrypt"
 
-// dummyHash: kullanıcı bulunamadığında karşılaştırılan sabit sahte hash.
-// Süreç başına BİR kez, gerçek kullanıcı hash'leriyle AYNI maliyetle
-// (bcrypt.DefaultCost) üretilir; böylece "kullanıcı yok" ile "parola yanlış"
-// yolları aynı sürede (bir bcrypt karşılaştırması) tamamlanır ve yanıt
-// süresinden hangi e-postaların kayıtlı olduğu anlaşılamaz. Paket yüklenirken
-// üretilir ki ilk sahte karşılaştırma ekstra süre (hash üretimi) taşımasın.
+// dummyHash is compared when the user does not exist. It has the same cost as real hashes, so "no such
+// user" and "wrong password" take the same time and the response time does not reveal which e-mail
+// addresses exist. It is generated at package load so the first dummy comparison is not slower.
 var dummyHash = mustHash("hicbir-kullaniciya-ait-olmayan-sahte-parola")
 
 func mustHash(password string) []byte {
@@ -18,9 +15,7 @@ func mustHash(password string) []byte {
 	return h
 }
 
-// VerifyPassword: parolayı hash ile karşılaştırır. userFound=false ise
-// (kullanıcı yok) gerçek hash yerine dummyHash ile yine tam bir bcrypt
-// karşılaştırması yapılır ve sonuç DAİMA false'tur.
+// VerifyPassword always does a full bcrypt comparison; without a user it uses dummyHash and returns false.
 func VerifyPassword(hash string, userFound bool, password string) bool {
 	target := dummyHash
 	if userFound {

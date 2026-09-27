@@ -4,9 +4,8 @@ import type { AlertRule } from '../api/types'
 import { usePolledResource } from '../nodes/usePolledResource'
 
 /**
- * Kurallar bu istemcinin dışındaki değişikliklerle de (başka kullanıcı ekleyip kapatabilir) sık
- * değişmez; alarmların aksine WS olayı da yok (yalnızca "silindi" olayı var, bkz. AlertsProvider).
- * Bu yüzden ölçülü bir yoklama yeterli — kendi işlemlerimizden sonra zaten anında `reload()` çağrılır.
+ * Rules change rarely and, unlike alerts, have no WS events (only "deleted"; see AlertsProvider), so
+ * modest polling is enough; our own actions call `reload()` right away.
  */
 export const RULES_POLL_MS = 30_000
 

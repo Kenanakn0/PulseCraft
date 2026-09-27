@@ -9,9 +9,8 @@ export interface RecordedRequest {
 type Handler = (request: RecordedRequest) => Response | Promise<Response>
 
 /**
- * Global fetch'i, "METHOD /yol" anahtarlı yanıt tablosuyla değiştirir.
- * Gerçek fetch gibi davranır: istek iptal edilmişse (AbortSignal) AbortError ile reddedilir.
- * Tabloda olmayan bir istek testin hatasıdır ve açıkça patlar.
+ * Replaces global fetch with a response table keyed by "METHOD /path". Behaves like fetch: an aborted
+ * request rejects with AbortError. A request missing from the table is a test bug and fails loudly.
  */
 export function stubFetch(routes: Record<string, Handler>) {
   const calls: RecordedRequest[] = []

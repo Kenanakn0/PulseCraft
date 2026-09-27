@@ -18,7 +18,7 @@ function setup(overrides: Partial<ConstructorParameters<typeof RealtimeClient>[0
     onOpen: (r) => opens.push(r),
     onSessionEnded,
     onAbnormalClose,
-    random: () => 1, // jitter'ı sabitle: gecikme = tavan
+    random: () => 1, // fix jitter: delay = ceiling
     ...overrides,
   })
   return { client, statuses, events, opens, onSessionEnded, onAbnormalClose }
@@ -61,7 +61,7 @@ describe('RealtimeClient', () => {
     client.start()
     expect(FakeSocket.instances).toHaveLength(1)
 
-    // Hiç açılmadan üst üste başarısız denemeler: 1000, 2000, 4000, 5000 (tavan), 5000
+    // Consecutive failures without ever opening: 1000, 2000, 4000, 5000 (ceiling), 5000
     for (const [i, delay] of [1000, 2000, 4000, 5000, 5000].entries()) {
       FakeSocket.last.drop(1006)
       expect(FakeSocket.instances).toHaveLength(i + 1)
@@ -102,7 +102,7 @@ describe('RealtimeClient', () => {
     const { client } = setup({ baseDelayMs: 1000, stableAfterMs: 5000 })
     client.start()
 
-    // Açılıp hemen düşüyor: gecikme büyümeye devam etmeli (1000 → 2000).
+    // Opens and drops at once: the delay keeps growing (1000 → 2000).
     FakeSocket.last.open()
     FakeSocket.last.drop(1006)
     vi.advanceTimersByTime(1000)
@@ -113,7 +113,7 @@ describe('RealtimeClient', () => {
     vi.advanceTimersByTime(1)
     expect(FakeSocket.instances).toHaveLength(3)
 
-    // Bu kez 5 sn açık kalıyor → sıfırlanır → sonraki gecikme yine 1000.
+    // This time it stays open for 5 s → reset → the next delay is 1000 again.
     FakeSocket.last.open()
     vi.advanceTimersByTime(5000)
     FakeSocket.last.drop(1006)
@@ -152,11 +152,11 @@ describe('RealtimeClient', () => {
     client.stop()
 
     expect(first.closedByClient).toBe(true)
-    first.send(metricEvent('n1', '2030-01-01T00:00:00Z')) // söküldü: iletilmez
+    first.send(metricEvent('n1', '2030-01-01T00:00:00Z')) // torn down: not delivered
     expect(events).toHaveLength(0)
     expect(statuses.at(-1)).toBe('closed')
 
-    // Bekleyen bir yeniden bağlanma da kalmamalı
+    // No reconnect may be pending either.
     const again = setup()
     again.client.start()
     FakeSocket.last.drop(1006)

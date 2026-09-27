@@ -5,8 +5,7 @@ import App from './App'
 import { AuthProvider } from './auth/AuthProvider'
 import './index.css'
 
-// Uygulamanın giriş noktası (C#'taki Program.cs). Sarmalama sırası, C#'taki middleware/DI
-// kaydı gibi, dıştan içe doğru: yönlendirici → oturum bilgisi → uygulama.
+// Providers from outside in: router → session → app.
 const container = document.getElementById('root')
 if (container === null) throw new Error('#root elementi bulunamadı')
 

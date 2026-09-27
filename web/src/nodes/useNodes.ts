@@ -6,28 +6,26 @@ import { mergeLive } from './live'
 import { useLiveMetrics } from './useLiveMetrics'
 import { usePolledResource } from './usePolledResource'
 
-/** Liste kaç ms'de bir yenilenir. */
 export const NODES_POLL_MS = 10_000
 
 export type NodesState =
   | { status: 'loading' }
-  /** refreshError: liste bir kez yüklendikten sonra yapılan yenilemenin başarısız olduğunu söyler;
-   *  son bilinen veriler ekranda kalır. */
+  /** refreshError: a refresh after the first successful load failed; the last known data stays on screen. */
   | { status: 'ready'; nodes: NodeSummary[]; refreshError: string | null }
   | { status: 'error'; message: string }
 
 /**
- * Sunucu listesini yükler ve `pollMs` aralığıyla yeniler. Yenileme/iptal mantığı genel
- * `usePolledResource` hook'undadır; bu hook yalnızca "neyi çektiğimizi" ve sonucun biçimini bilir.
+ * Loads the server list and refreshes it every `pollMs`. The polling/cancellation logic lives in
+ * usePolledResource; this hook only knows what to fetch.
  */
 export function useNodes(pollMs: number = NODES_POLL_MS) {
-  // epoch: WebSocket yeniden bağlanınca artar → liste hemen REST'ten yeniden çekilir (kopma sırasında
-  // kaçan olaylar için tek doğru kaynak REST'tir).
+  // epoch increases on every WebSocket reconnect → refetch from REST right away (REST is the only reliable
+  // source for events missed while disconnected).
   const { epoch } = useRealtime()
   const { state, reload } = usePolledResource(nodesApi.list, pollMs, 'Sunucu listesi', epoch)
   const live = useLiveMetrics()
 
-  // Başka bir sekmede/kullanıcı tarafından silinen sunucu, bir sonraki yoklamayı beklemeden listeden düşer.
+  // A server deleted elsewhere drops out of the list without waiting for the next poll.
   const [deleted, setDeleted] = useState<readonly string[]>([])
   useRealtimeEvents((event) => {
     if (event.type === 'node') setDeleted((ids) => (ids.includes(event.node_id) ? ids : [...ids, event.node_id]))

@@ -6,8 +6,8 @@ export function useRealtime() {
 }
 
 /**
- * Canlı olaylara abone olur; bileşen kalkınca aboneliği bırakır. `handler` her çizimde farklı bir
- * fonksiyon olabilir: en günceli bir ref'te tutulur, abonelik yeniden kurulmaz (bkz. usePolledResource).
+ * Subscribes to live events and unsubscribes on unmount. `handler` may be a new function on every render:
+ * the latest one is kept in a ref and the subscription is not recreated (see usePolledResource).
  */
 export function useRealtimeEvents(handler: RealtimeListener): void {
   const { subscribe } = useRealtime()

@@ -16,17 +16,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// maxNodeNameRunes: sunucu adının en fazla karakter sayısı (arayüz kartlarında ve alarmlarda gösterilir).
 const maxNodeNameRunes = 100
 
-// onlineThreshold: last_seen_at bu süreden yeniyse node "çevrimiçi" sayılır.
-// Karşılaştırma SUNUCUDA, veritabanının saatiyle (now() - last_seen_at) yapılır;
-// tarayıcının saati yanlış olsa bile durum doğru görünür. Varsayılan agent
-// aralığı 3 sn olduğundan 15 sn, birkaç kaçırılmış gönderime tolerans tanır.
+// onlineThreshold is compared on the server with the database clock (now() - last_seen_at), so a wrong
+// browser clock cannot affect the status. With the default 3 s agent interval it tolerates a few misses.
 const onlineThreshold = 15 * time.Second
 
-// NodeLatest: bir node'un en son kaydedilmiş ölçümü (kartlarda anında değer
-// gösterebilmek için; hiç ölçümü yoksa Node.Latest null'dır).
+// NodeLatest is the newest stored sample, so cards can show values immediately (null without samples).
 type NodeLatest struct {
 	Time         time.Time `json:"time"`
 	CPUPercent   float64   `json:"cpu_percent"`
@@ -38,8 +34,7 @@ type NodeLatest struct {
 	Load1        *float64  `json:"load1"`
 }
 
-// Node: GET /api/v1/nodes yanıtında dönen alanlar. api_key_hash burada
-// ASLA yer almaz — düz key sadece oluşturma anında bir kez gösterilir.
+// Node never includes api_key_hash; the plain key is shown only once, at creation.
 type Node struct {
 	ID         string  `json:"id"`
 	Name       string  `json:"name"`
@@ -49,27 +44,23 @@ type Node struct {
 	LastSeenAt *string `json:"last_seen_at"`
 	CreatedAt  string  `json:"created_at"`
 
-	// Online, sunucu saatiyle hesaplanır (bkz. onlineThreshold). LastSeenSecondsAgo
-	// de sunucuda hesaplanır; hiç görülmemişse null'dır.
+	// Online and LastSeenSecondsAgo are computed on the server (see onlineThreshold).
 	Online             bool        `json:"online"`
 	LastSeenSecondsAgo *float64    `json:"last_seen_seconds_ago"`
 	Latest             *NodeLatest `json:"latest"`
 }
 
-// isOnline: son görülmeden bu yana geçen süreye (sn; hiç görülmediyse nil) göre
-// node'un çevrimiçi olup olmadığını söyler.
 func isOnline(secondsAgo *float64) bool {
 	return secondsAgo != nil && *secondsAgo <= onlineThreshold.Seconds()
 }
 
-// createNodeRequest: POST /api/v1/nodes gövdesi.
 type createNodeRequest struct {
 	Name     string `json:"name"`
 	Hostname string `json:"hostname"`
 	OS       string `json:"os"`
 }
 
-// createNodeResponse: API key SADECE bu yanıtta düz metin olarak döner.
+// createNodeResponse is the only place where the plain API key is ever returned.
 type createNodeResponse struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
@@ -82,7 +73,7 @@ func (a *API) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "geçersiz istek gövdesi", http.StatusBadRequest)
 		return
 	}
-	// Ad kırpılır: yalnızca boşluklardan oluşan bir ad listede "görünmez" bir kart üretirdi.
+	// Trim: a name of only spaces would render as an invisible card.
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
 		http.Error(w, "name zorunlu", http.StatusBadRequest)
@@ -120,10 +111,8 @@ func (a *API) handleCreateNode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
-	// LEFT JOIN LATERAL: her node için "en yeni tek ölçümü" ayrı bir alt sorguyla
-	// alır (ux_metrics_node_time indeksi (node_id, time DESC) bunu ucuz kılar).
-	// Ölçümü olmayan node'larda m.* sütunları NULL gelir.
-	// EXTRACT(EPOCH ...): now() - last_seen_at farkını saniye olarak veritabanı saatiyle hesaplar.
+	// LEFT JOIN LATERAL fetches the newest sample per node through the (node_id, time DESC) index; nodes
+	// without samples get NULLs. The age is computed with the database clock.
 	rows, err := a.DB.Query(r.Context(),
 		`SELECT n.id, n.name, n.hostname, n.os, n.is_active, n.last_seen_at, n.created_at,
 		        EXTRACT(EPOCH FROM (now() - n.last_seen_at))::float8,
@@ -150,7 +139,6 @@ func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
 		var createdAt time.Time
 		var age *float64
 
-		// LEFT JOIN'den gelen, NULL olabilen sütunlar için işaretçi (pointer) kullanılır.
 		var (
 			mTime                    *time.Time
 			mCPU, mMem, mDisk        *float64
@@ -169,7 +157,7 @@ func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
 			n.LastSeenAt = &s
 		}
 		if age != nil {
-			ago := math.Max(*age, 0) // saat oynamalarında eksi değer çıkmasın
+			ago := math.Max(*age, 0) // no negative values if the clock jumps
 			n.LastSeenSecondsAgo = &ago
 		}
 		n.Online = isOnline(n.LastSeenSecondsAgo)
@@ -192,9 +180,7 @@ func (a *API) handleListNodes(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(nodes)
 }
 
-// generateAPIKey: crypto/rand (kriptografik olarak güvenli rastgelelik) ile
-// 32 baytlık rastgele değer üretip hex string'e çevirir. math/rand gizli
-// değerler için ASLA kullanılmamalı — tahmin edilebilir.
+// generateAPIKey uses crypto/rand: API keys must not be predictable (never math/rand).
 func generateAPIKey() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
@@ -203,30 +189,24 @@ func generateAPIKey() (string, error) {
 	return hex.EncodeToString(buf), nil
 }
 
-// hashAPIKey: API key'in SHA-256 hash'ini hex string olarak döndürür.
-// DB'de düz key değil, sadece bu hash saklanır.
+// Only the hash of an API key is stored.
 func hashAPIKey(apiKey string) string {
 	sum := sha256.Sum256([]byte(apiKey))
 	return hex.EncodeToString(sum[:])
 }
 
-// handleDeleteNode: DELETE /api/v1/nodes/{id}. Sunucuyu ve ona bağlı her şeyi siler: metrikler, alarm
-// satırları (GEÇMİŞ DAHİL) ve YALNIZCA bu sunucuya ait kurallar (hepsi şemada ON DELETE CASCADE). Silinen
-// sunucunun API anahtarının hash'i de gider: anahtarı kullanan agent bundan sonra 401 alır.
-//
-// Sıra, kural silmedeki (handleDeleteRule) gerekçeyle aynıdır:
-//  1. cascade ile gidecek kuralların id'leri okunur (silindikten sonra öğrenilemez),
-//  2. aktif alarmlar çözülür ve "resolved" olayı yayınlanır,
-//  3. sunucu silinir, motor önbelleği yenilenir,
-//  4. silinen her kural için "rule deleted", en sonda "node deleted" olayı yayınlanır: açık istemciler o
-//     sunucuya/kurallara ait satırları (geçmiş dahil) listelerinden atar.
+// handleDeleteNode deletes the node and, by cascade, its metrics, its alert history and the rules scoped
+// to it; the key hash goes too, so its agent gets 401 from now on. The order mirrors handleDeleteRule:
+// read the ids of the rules that the cascade will remove, resolve and announce active alerts, delete and
+// refresh the engine, then announce each deleted rule and finally the deleted node, so that open clients
+// drop the corresponding rows.
 func (a *API) handleDeleteNode(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := chi.URLParam(r, "id")
 
 	rows, err := a.DB.Query(ctx, `SELECT id FROM alert_rules WHERE node_id = $1 ORDER BY id`, id)
 	if err != nil {
-		a.writeDBError(w, "sunucunun kuralları okunamadı", err) // geçersiz UUID → 400
+		a.writeDBError(w, "sunucunun kuralları okunamadı", err) // invalid UUID → 400
 		return
 	}
 	ruleIDs, err := pgx.CollectRows(rows, pgx.RowTo[int64])

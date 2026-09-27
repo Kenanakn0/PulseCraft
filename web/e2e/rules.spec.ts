@@ -5,7 +5,7 @@ import { expect, test } from './fixtures'
 const email = process.env.E2E_EMAIL
 const password = process.env.E2E_PASSWORD
 
-// Oturum: setup projesinin bir kez yazdığı çerez (kendi girişimizi yapmayız; bkz. e2e/auth-state.ts).
+// Session: the cookie written once by the setup project (see e2e/auth-state.ts).
 const storageState = USER1_STATE
 
 const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`
@@ -41,7 +41,7 @@ test.describe('alarm kuralları ekranı (gerçek tarayıcı + gerçek arka uç)'
     await page.getByLabel('Önem').selectOption('critical')
     await page.getByRole('button', { name: 'Kural ekle' }).click()
 
-    // Form temizlendi (aynı adla ikinci kez eklenmedi) ve satır listede.
+    // The form was cleared (no second rule with the same name) and the row is listed.
     await expect(page.getByLabel('Ad')).toHaveValue('')
     const row = page.getByTestId('rule-row').filter({ hasText: ruleName })
     await expect(row).toBeVisible()
@@ -50,12 +50,11 @@ test.describe('alarm kuralları ekranı (gerçek tarayıcı + gerçek arka uç)'
     await expect(row).toContainText('Kritik')
     await expect(row.getByText('Etkin')).toBeVisible()
 
-    // Devre dışı bırak
     await row.getByRole('button', { name: 'Devre dışı bırak' }).click()
     await expect(row.getByText('Kapalı')).toBeVisible()
     await expect(row.getByRole('button', { name: 'Etkinleştir' })).toBeVisible()
 
-    // Sil: onay olmadan vazgeçilirse satır kalır.
+    // Delete: cancelling the confirmation keeps the row.
     await row.getByRole('button', { name: 'Sil' }).click()
     await expect(row).toContainText('Geçmiş alarmlar da silinir')
     await row.getByRole('button', { name: 'Vazgeç' }).click()
@@ -81,11 +80,11 @@ test.describe('alarm kuralları ekranı (gerçek tarayıcı + gerçek arka uç)'
     const ruleName = uniqueName('e2e-butun-kural')
     await page.getByLabel('Ad').fill(ruleName)
     await page.getByLabel('Sunucu').selectOption({ label: nodeName })
-    await page.getByLabel('Eşik (%)').fill('1') // hemen tetiklensin
+    await page.getByLabel('Eşik (%)').fill('1') // fires immediately
     await page.getByRole('button', { name: 'Kural ekle' }).click()
     await expect(page.getByTestId('rule-row').filter({ hasText: ruleName })).toBeVisible()
 
-    // Alarm panosuna geç: WebSocket zaten bağlı, agent gibi bir ölçüm gönder.
+    // Go to the alert board: the WebSocket is already connected; post a sample like the agent.
     await page.goto('/alerts')
     await expect(page.getByTestId('live-status')).toHaveText('Canlı')
     const post = await api.post('/api/v1/metrics', {
@@ -98,7 +97,7 @@ test.describe('alarm kuralları ekranı (gerçek tarayıcı + gerçek arka uç)'
     await expect(alertCard).toBeVisible({ timeout: 4000 })
     await expect(alertCard.getByRole('link', { name: nodeName })).toHaveAttribute('href', `/nodes/${nodeId}`)
 
-    // Temizlik: kuralı sil (geçmişiyle gider).
+    // Cleanup: delete the rule (its history goes with it).
     await page.goto('/alert-rules')
     const row = page.getByTestId('rule-row').filter({ hasText: ruleName })
     await row.getByRole('button', { name: 'Sil' }).click()
@@ -122,13 +121,13 @@ test.describe('alarm kuralları ekranı (gerçek tarayıcı + gerçek arka uç)'
 
     const ruleName = uniqueName('e2e-bos-esik')
     await page.getByLabel('Ad').fill(ruleName)
-    // Sunucu, metrik, koşul, süre, önem varsayılan değerleriyle bırakılıyor; yalnızca eşik boş.
+    // Server, metric, condition, duration and severity keep their defaults; only the threshold is empty.
     await page.getByRole('button', { name: 'Kural ekle' }).click()
 
     await expect(page.getByRole('alert')).toHaveText('Eşik geçerli bir sayı olmalı.')
-    expect(posts).toHaveLength(0) // istek hiç gönderilmedi
+    expect(posts).toHaveLength(0) // no request was sent
     await expect(page.getByTestId('rule-row').filter({ hasText: ruleName })).toHaveCount(0)
-    await expect(page.getByLabel('Ad')).toHaveValue(ruleName) // girdi kaybolmadı
+    await expect(page.getByLabel('Ad')).toHaveValue(ruleName) // the input was not lost
 
     await context.close()
   })

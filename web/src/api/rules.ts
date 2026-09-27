@@ -1,7 +1,7 @@
 import { apiFetch } from './http'
 import type { AlertRule, AlertSeverity } from './types'
 
-/** POST/PUT /api/v1/alert-rules gövdesi (kuralın kimliksiz hâli). */
+/** Body of POST/PUT /api/v1/alert-rules (a rule without its id). */
 export interface RulePayload {
   name: string
   node_id: string | null
@@ -18,10 +18,10 @@ export const rulesApi = {
 
   create: (payload: RulePayload) => apiFetch<AlertRule>('/api/v1/alert-rules', { method: 'POST', body: payload }),
 
-  /** Sunucu tam gövde ister: alanlardan yalnızca biri değişse de (ör. `enabled`) TÜMÜ gönderilir. */
+  /** The server expects the full body: even when only one field changes (e.g. `enabled`), ALL are sent. */
   update: (id: number, payload: RulePayload) =>
     apiFetch<AlertRule>(`/api/v1/alert-rules/${id}`, { method: 'PUT', body: payload }),
 
-  /** Kuralı ve ona bağlı TÜM alarm geçmişini (cascade) siler. */
+  /** Deletes the rule and ALL of its alert history (cascade). */
   remove: (id: number) => apiFetch<void>(`/api/v1/alert-rules/${id}`, { method: 'DELETE' }),
 }

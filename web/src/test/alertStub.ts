@@ -2,8 +2,8 @@ import type { AlertRow, AlertStatus } from '../api/types'
 import { jsonResponse } from './fetchStub'
 
 /**
- * `GET /api/v1/alerts?status=…` yanıtlarını, verilen satırları duruma göre süzerek üretir (sunucu gibi).
- * `getRows` her istekte çağrılır: test satırları sonradan değiştirebilir.
+ * Answers `GET /api/v1/alerts?status=…` by filtering the given rows by status, like the server.
+ * `getRows` is called per request, so a test can change the rows later.
  */
 export function alertRoutes(getRows: () => AlertRow[]) {
   const route = (status: AlertStatus) => () => jsonResponse(getRows().filter((a) => a.status === status))

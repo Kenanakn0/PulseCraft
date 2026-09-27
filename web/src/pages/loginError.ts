@@ -1,7 +1,7 @@
 import { ApiError } from '../api/http'
 
-// Sunucunun ham hata metnini kullanıcıya göstermek yerine durum koduna göre kendi
-// mesajlarımızı üretiriz: arayüz metni sunucu metinlerinden bağımsız kalır.
+// Messages are derived from the status code instead of showing the server's raw text, so the UI wording
+// stays independent of server messages.
 export function loginErrorMessage(err: unknown): string {
   if (err instanceof ApiError) {
     switch (err.status) {
@@ -21,8 +21,8 @@ export function loginErrorMessage(err: unknown): string {
 }
 
 /**
- * Girişten sonra dönülecek yol: yalnızca uygulama İÇİ, mutlak bir yol kabul edilir
- * ("//evil.example" gibi başka siteye yönlendirebilecek değerler reddedilir).
+ * Where to go after login: only an absolute in-app path is accepted (values like "//evil.example" that
+ * could redirect to another site are rejected).
  */
 export function safeRedirectPath(state: unknown): string {
   if (typeof state === 'object' && state !== null && 'from' in state) {

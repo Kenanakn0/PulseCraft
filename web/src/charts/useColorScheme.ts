@@ -3,7 +3,7 @@ import { useSyncExternalStore } from 'react'
 const QUERY = '(prefers-color-scheme: dark)'
 
 function subscribe(onChange: () => void): () => void {
-  if (typeof window.matchMedia !== 'function') return () => undefined // jsdom gibi ortamlar
+  if (typeof window.matchMedia !== 'function') return () => undefined // environments such as jsdom
   const media = window.matchMedia(QUERY)
   media.addEventListener('change', onChange)
   return () => media.removeEventListener('change', onChange)
@@ -14,12 +14,8 @@ function getSnapshot(): 'dark' | 'light' {
 }
 
 /**
- * Tarayıcının koyu/açık tema ayarını izler; ayar DEĞİŞİNCE bileşen kendiliğinden yeniden çizilir.
- *
- * `useSyncExternalStore`: React'in DIŞINDAKİ bir kaynağa (burada `matchMedia`) abone olmanın
- * standart yolu. `subscribe` bir olaya abone olur ve abonelikten çıkan bir fonksiyon döndürür
- * (C#'ta `event += handler` / `event -= handler`); `getSnapshot` o anki değeri okur.
- * Canvas'a çizilen grafikler CSS değişkenlerini kendiliğinden izleyemediği için buna ihtiyaç var.
+ * Tracks the browser's dark/light preference and re-renders on change. Canvas charts cannot follow CSS
+ * variables by themselves, hence this hook.
  */
 export function useColorScheme(): 'dark' | 'light' {
   return useSyncExternalStore(subscribe, getSnapshot, () => 'light')

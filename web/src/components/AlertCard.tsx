@@ -9,10 +9,11 @@ interface AlertCardProps {
   onAcknowledge: (id: number) => Promise<AckResult>
 }
 
-/** Tek bir alarm. Durumuna göre: açıksa "İncelemeye aldım" düğmesi, incelemedeyse kimin aldığı, çözüldüyse süre. */
+/**
+ * A single alert: an acknowledge button while open, who took it while acknowledged, the duration once resolved.
+ */
 export function AlertCard({ alert, onAcknowledge }: AlertCardProps) {
-  // Yerel (bu kart) durum: istek sürüyor mu, hata mesajı. Başarılı olunca kart başka sekmeye geçer ve bu
-  // bileşen kalkar; bu yüzden başarıda state'e dokunulmaz, yalnızca başarısızlıkta.
+  // On success the card moves to another tab and unmounts, so state is only touched on failure.
   const [pending, setPending] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
