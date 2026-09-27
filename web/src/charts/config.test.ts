@@ -5,6 +5,7 @@ import {
   buildLineData,
   buildLineOptions,
   DECIMATION_SAMPLES,
+  Y_AXIS_WIDTH,
   gapThresholdMs,
   gaugeOptions,
 } from './config'
@@ -46,6 +47,17 @@ describe('buildLineOptions (canlı güncellenen grafik ayarları)', () => {
 
     const label = options().plugins?.tooltip?.callbacks?.label as (ctx: unknown) => string
     expect(label({ dataset: { label: 'CPU' }, parsed: { y: 7 } })).toBe('CPU: <7>')
+  })
+
+  it('y ekseni genişliği etiketlerden bağımsız SABİT (alt alta grafikler hizalı)', () => {
+    for (const formatY of [(v: number) => `${v}%`, (v: number) => `${v},9 MB/s uzun bir etiket`]) {
+      const y = buildLineOptions({ from: 0, to: 1, theme, formatY, showLegend: false }).scales?.y as {
+        afterFit: (axis: { width: number }) => void
+      }
+      const axis = { width: 12 }
+      y.afterFit(axis)
+      expect(axis.width).toBe(Y_AXIS_WIDTH)
+    }
   })
 
   it('lejant yalnızca birden çok seri varken görünür', () => {

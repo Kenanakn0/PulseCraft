@@ -49,6 +49,13 @@ interface LineOptionsInput {
 }
 
 /**
+ * y ekseninin SABİT genişliği (px). Chart.js ekseni etiketlerin uzunluğuna göre boyutlar: "100%" ile
+ * "341,8 KB/s" farklı genişlikte olduğundan alt alta duran iki grafiğin çizim alanları (ve x eksenleri) kayıyordu.
+ * En uzun etiket ("1.023,9 MB/s") bu genişliğe sığar.
+ */
+export const Y_AXIS_WIDTH = 84
+
+/**
  * Canlı güncellenen grafikler için seçenekler:
  *  - `animation: false`  → her güncellemede kayan/oynayan animasyon YOK
  *  - `parsing: false` + `normalized: true` → veri zaten {x,y} ve sıralı; Chart.js ayrıca ayrıştırma yapmaz
@@ -80,6 +87,10 @@ export function buildLineOptions({ from, to, theme, yMax, formatY, showLegend }:
         ...(yMax === undefined ? {} : { max: yMax }),
         ticks: { color: theme.text, callback: (value) => formatY(Number(value)) },
         grid: { color: theme.grid },
+        // Etiket uzunluğundan bağımsız sabit genişlik: grafikler birbirinin altında HİZALI durur.
+        afterFit: (axis) => {
+          axis.width = Y_AXIS_WIDTH
+        },
       },
     },
     plugins: {
