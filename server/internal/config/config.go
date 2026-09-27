@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -72,6 +73,16 @@ func dbPasswordIsPlaceholder(databaseURL string) bool {
 	}
 	pw, _ := u.User.Password()
 	return strings.Contains(strings.ToLower(pw), "degistir")
+}
+
+// WithoutURL strips the URL from url.Parse errors before they are logged: connection URLs carry
+// passwords, and *url.Error quotes the whole input.
+func WithoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
+	}
+	return err
 }
 
 func envOrDefault(key, fallback string) string {

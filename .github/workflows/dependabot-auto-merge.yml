@@ -1,0 +1,32 @@
+name: Dependabot auto-merge
+
+# Enables GitHub auto-merge on Dependabot PRs for minor and patch updates (security updates included). The
+# PR is merged only after the required CI checks of the main ruleset pass. Major versions are ignored in
+# dependabot.yml; a major security update is left for a manual review.
+#
+# pull_request_target runs with a write token in the context of the base branch. That is safe here only
+# because this workflow never checks out or runs code from the pull request.
+on: pull_request_target
+
+permissions: {}
+
+jobs:
+  auto-merge:
+    if: github.event.pull_request.user.login == 'dependabot[bot]' && github.repository == 'Kenanakn0/PulseCraft'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: metadata
+        uses: dependabot/fetch-metadata@v3
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable auto-merge (minor and patch only)
+        if: steps.metadata.outputs.update-type == 'version-update:semver-minor' || steps.metadata.outputs.update-type == 'version-update:semver-patch'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

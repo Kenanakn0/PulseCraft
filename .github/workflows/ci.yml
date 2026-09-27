@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Merges made by the Dependabot auto-merge workflow use GITHUB_TOKEN, and pushes with that token do not
+  # trigger workflows. A weekly run keeps main (and the badge) tested anyway.
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -67,6 +72,9 @@ jobs:
     name: Stack (docker compose, e2e, smoke, Go integration)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # The development override publishes PostgreSQL and Redis on loopback for the integration tests.
+      COMPOSE_FILE: docker-compose.yml:docker-compose.dev.yml
     steps:
       - uses: actions/checkout@v7
         with:
@@ -79,12 +87,14 @@ jobs:
           PG_PASS="$(openssl rand -hex 16)"
           U1_PASS="$(openssl rand -hex 16)"
           U2_PASS="$(openssl rand -hex 16)"
+          REDIS_PASS="$(openssl rand -hex 16)"
           JWT="$(openssl rand -hex 32)"
-          for v in "$PG_PASS" "$U1_PASS" "$U2_PASS" "$JWT"; do echo "::add-mask::$v"; done
+          for v in "$PG_PASS" "$U1_PASS" "$U2_PASS" "$REDIS_PASS" "$JWT"; do echo "::add-mask::$v"; done
           cat > deploy/.env <<EOF
           POSTGRES_USER=ci
           POSTGRES_PASSWORD=$PG_PASS
           POSTGRES_DB=pulsecraft
+          REDIS_PASSWORD=$REDIS_PASS
           JWT_SECRET=$JWT
           DEMO_USERS=e2e@example.test:$U1_PASS:E2E Kullanici;e2e2@example.test:$U2_PASS:E2E Kullanici 2
           COOKIE_SECURE=false
@@ -95,6 +105,7 @@ jobs:
             echo "E2E_EMAIL2=e2e2@example.test"
             echo "E2E_PASSWORD2=$U2_PASS"
             echo "PULSECRAFT_TEST_DATABASE_URL=postgres://ci:$PG_PASS@127.0.0.1:5432/pulsecraft?sslmode=disable"
+            echo "PULSECRAFT_TEST_REDIS_URL=redis://:$REDIS_PASS@127.0.0.1:6379/0"
           } >> "$GITHUB_ENV"
 
       - name: Start stack
@@ -133,8 +144,6 @@ jobs:
           cache-dependency-path: server/go.sum
       - name: Go integration tests (real PostgreSQL/TimescaleDB + Redis)
         working-directory: server
-        env:
-          PULSECRAFT_TEST_REDIS_URL: redis://127.0.0.1:6379/0
         # Without their variables the tests would be skipped silently and the job would pass: fail on a skip.
         run: |
           set -o pipefail

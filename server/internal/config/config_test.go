@@ -1,6 +1,8 @@
 package config
 
 import (
+	"errors"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -118,5 +120,19 @@ func TestLoad_DefaultDatabaseURLHasNoPlaceholderPassword(t *testing.T) {
 	t.Setenv("DATABASE_URL", "")
 	if _, err := Load(); err != nil {
 		t.Fatalf("varsayılan DATABASE_URL ile Load() başarısız: %v", err)
+	}
+}
+
+func TestWithoutURL_DropsPasswordFromParseErrors(t *testing.T) {
+	_, err := url.Parse("redis://:s3cretpass@redis:6379/0\x7f")
+	if err == nil || !strings.Contains(err.Error(), "s3cretpass") {
+		t.Fatalf("öncül: url.Parse hatası adresi içermeliydi, gelen: %v", err)
+	}
+	if got := WithoutURL(err).Error(); strings.Contains(got, "s3cretpass") {
+		t.Errorf("parola hâlâ hata mesajında: %q", got)
+	}
+	plain := errors.New("başka bir hata")
+	if WithoutURL(plain) != plain {
+		t.Error("url.Error olmayan hata olduğu gibi dönmeli")
 	}
 }

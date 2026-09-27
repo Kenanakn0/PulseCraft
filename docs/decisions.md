@@ -11,8 +11,11 @@ that were accepted. For setup and usage see the [README](../README.md).
   server. The browser therefore sees a single origin: no CORS, the session cookie can be `SameSite=Strict`,
   and the WebSocket `Origin` check can be strict. The Vite dev server plays the same role in development
   (its proxy must *not* use `changeOrigin`, or the `Origin`/`Host` comparison fails).
-- **The server is not published to the host**; only nginx is, and every published port (web, PostgreSQL,
-  Redis) is bound to `127.0.0.1`.
+- **Only nginx is published to the host**, on `127.0.0.1`. The server, PostgreSQL and Redis stay on the
+  internal Docker network; a separate development override publishes the databases on loopback for local
+  tools and integration tests.
+- **Redis requires a password.** It is handed to `redis-server` on stdin rather than as an argument, so it
+  never shows up in the process list, and connection URLs are stripped from logged errors.
 - Router: `chi` (close to `net/http`, middleware-friendly). Database: `pgx` with a connection pool.
   WebSocket: `coder/websocket`.
 

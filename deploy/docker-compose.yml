@@ -1,9 +1,10 @@
 # PulseCraft: TimescaleDB + Redis + Go server + nginx (serves the React build).
 # Run from this folder: docker compose up -d --build
 #
-# nginx is the only application entry point on the host (default http://localhost:8080). The server's port
-# is not published; only nginx reaches it over the Docker network. db and redis are published on loopback
-# (127.0.0.1) for development tools and are not visible on the LAN.
+# nginx is the only port published on the host (127.0.0.1, default http://localhost:8080). The server, the
+# database and Redis are reachable only on the Docker network. For local tools and integration tests,
+# docker-compose.dev.yml additionally publishes PostgreSQL and Redis on loopback:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
 
 name: pulsecraft
 
@@ -17,8 +18,6 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD deploy/.env içinde tanımlı olmalı}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - db_data:/var/lib/postgresql/data
       # Runs on the first start of an empty volume. A single file is mounted (not the folder) so the image's
@@ -36,15 +35,24 @@ services:
     image: redis:7-alpine
     container_name: pulsecraft-redis
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
-    ports:
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD deploy/.env içinde tanımlı olmalı}
+    # The configuration is passed on stdin ("redis-server -") so the password never appears in the
+    # process list; exec keeps Redis as PID 1 so it receives docker stop's signal directly.
+    command:
+      - sh
+      - -c
+      - |
+        exec redis-server - <<EOF
+        appendonly yes
+        requirepass $$REDIS_PASSWORD
+        EOF
     volumes:
       - redis_data:/data
     networks:
       - pulsecraft
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -62,7 +70,7 @@ services:
     environment:
       # A POSTGRES_PASSWORD containing @ : / ? would have to be percent-encoded in this URL.
       DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable"
-      REDIS_URL: "redis://redis:6379/0"
+      REDIS_URL: "redis://:${REDIS_PASSWORD}@redis:6379/0"
       PULSECRAFT_LISTEN_ADDR: ":8080"
       JWT_SECRET: "${JWT_SECRET:?JWT_SECRET deploy/.env içinde tanımlı olmalı (en az 32 karakter)}"
       DEMO_USERS: "${DEMO_USERS:?DEMO_USERS deploy/.env içinde tanımlı olmalı (en az bir kullanıcı)}"

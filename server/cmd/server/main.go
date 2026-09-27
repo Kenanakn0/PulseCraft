@@ -47,7 +47,7 @@ func main() {
 
 	pool, err := pgxpool.New(ctx, cfg.DatabaseURL)
 	if err != nil {
-		slog.Error("db pool oluşturulamadı", "err", err)
+		slog.Error("db pool oluşturulamadı", "err", config.WithoutURL(err))
 		os.Exit(1)
 	}
 	defer pool.Close()
@@ -70,7 +70,8 @@ func main() {
 
 	redisOpt, err := redis.ParseURL(cfg.RedisURL)
 	if err != nil {
-		slog.Error("geçersiz REDIS_URL", "err", err)
+		// The URL contains the Redis password; never log it.
+		slog.Error("geçersiz REDIS_URL", "err", config.WithoutURL(err))
 		os.Exit(1)
 	}
 	rdb := redis.NewClient(redisOpt)

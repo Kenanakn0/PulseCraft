@@ -96,6 +96,7 @@ Edit `deploy/.env` **before the first start**:
 | --- | --- |
 | `JWT_SECRET` | **Required**, at least 32 characters — the server refuses to start otherwise. Generate one (see below). |
 | `POSTGRES_PASSWORD` | **Required** — compose refuses to start without it. Use a strong random value (letters and digits are easiest). |
+| `REDIS_PASSWORD` | **Required**. Letters and digits only (it is used in a URL and in the Redis configuration). |
 | `DEMO_USERS` | **Required**: `email:password:Display name`, separated by `;`. Passwords are 8–72 bytes, without `:` `;` `$` `#` or quotes. The server refuses to start with placeholder, very common (`password123`, `demo1234` …) or trivial passwords. |
 | `WEB_PORT` | Port of the web UI on `127.0.0.1` (default `8080`). |
 
@@ -120,8 +121,9 @@ docker compose ps           # wait until db, redis, server and nginx are "health
 
 Open <http://localhost:8080> and sign in with one of the users from `DEMO_USERS`.
 
-> All published ports (web UI, PostgreSQL `5432`, Redis `6379`) are bound to `127.0.0.1` only. If a local
-> PostgreSQL or Redis already uses those ports, change `DB_PORT` / `REDIS_PORT` in `.env`.
+> Only the web UI is published, and only on `127.0.0.1`. PostgreSQL and Redis stay on the internal Docker
+> network; to reach them from local tools, add the development override (see
+> [Development and tests](#development-and-tests)).
 
 ### Connect a server (agent)
 
@@ -135,6 +137,12 @@ Open <http://localhost:8080> and sign in with one of the users from `DEMO_USERS`
 
    The agent asks for the API key **without echoing it**; paste it and press Enter. Within a few seconds
    the card turns *Çevrimiçi* (online).
+
+To install the agent as a binary instead (Go 1.27+):
+
+```powershell
+go install github.com/Kenanakn0/pulsecraft/agent/cmd/agent@latest
+```
 
 The key is deliberately never passed on the command line (where it would end up in the shell history and
 the process list). For services and containers, put it in a file instead:
@@ -184,11 +192,13 @@ docker compose --profile demo up -d --build demo-agent
   `Origin` check) — `SameSite=Strict` alone would still attach the cookie for pages on the same *site*,
   such as another localhost port. The WebSocket requires a session and a same-origin `Origin` header.
 - **Request size**: bodies are limited to 2 MiB and 5000 samples per ingest request.
+- **Internal services**: PostgreSQL and Redis are password protected and not published on the host by
+  default; the Redis password is passed on stdin and never appears in a process list.
 - **nginx**: strict Content-Security-Policy (no inline scripts), `X-Frame-Options: DENY`, `nosniff`,
   `Referrer-Policy: no-referrer`; it runs as an unprivileged user. The server itself is not published to
   the host.
-- **Configuration**: the stack refuses to start with a missing or short `JWT_SECRET`, a missing database
-  password, or placeholder/weak demo passwords.
+- **Configuration**: the stack refuses to start with a missing or short `JWT_SECRET`, a missing database or
+  Redis password, or placeholder/weak demo passwords. Connection URLs are never written to the logs.
 - **Every API route requires a session** except `/healthz`, login/logout and the agent's metrics
   endpoint — a test walks the router and fails if a new route is left unprotected.
 
@@ -197,6 +207,14 @@ an HTTPS reverse proxy (and set `COOKIE_SECURE=true`) before exposing it beyond 
 vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## Development and tests
+
+The development override also publishes PostgreSQL and Redis on `127.0.0.1` (`DB_PORT` / `REDIS_PORT`)
+for local tools such as `psql` and for the Go integration tests:
+
+```powershell
+cd deploy
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
+```
 
 ```powershell
 # Go (unit tests; integration tests are skipped unless the variables below are set)
@@ -217,7 +235,7 @@ they create servers, rules and alerts:
 
 | Command | Needs |
 | --- | --- |
-| `go -C server test ./internal/api -run Integration` | `PULSECRAFT_TEST_DATABASE_URL`, `PULSECRAFT_TEST_REDIS_URL` |
+| `go -C server test ./internal/api -run Integration` | `PULSECRAFT_TEST_DATABASE_URL`, `PULSECRAFT_TEST_REDIS_URL` (`redis://:<password>@127.0.0.1:6379/0`), stack started with the development override |
 | `npm run e2e` (Playwright, starts Vite) | `E2E_EMAIL`, `E2E_PASSWORD`; two-user tests also `E2E_EMAIL2`, `E2E_PASSWORD2` |
 | `npm run smoke` (against the built nginx image) | `SMOKE_BASE_URL`, `E2E_EMAIL`, `E2E_PASSWORD` |
 | `npm run docs:shots` (regenerates the screenshots in this README with fictional data) | an **empty** stack, `SHOTS_BASE_URL`, `SHOTS_ADMIN_*`, `SHOTS_OPS_*` |
@@ -251,7 +269,6 @@ docs/      design decisions, screenshots
 
 - Animated GIF of the live dashboard in this README.
 - Notifications (e-mail / webhook) for alerts.
-- Tagged agent releases (`go install github.com/Kenanakn0/pulsecraft/agent/cmd/agent@latest`).
 
 ## Türkçe özet
 
@@ -262,7 +279,7 @@ arayüzünde (Türkçe) sunucu kartları, canlı grafikler, alarm kuralları ve 
 panosu vardır: biri bir alarmı "İncelemeye aldım" dediğinde herkesin ekranında anında görünür.
 
 Kurulum: `deploy/.env.example` dosyasını `.env` olarak kopyalayın, `JWT_SECRET` (en az 32 karakter),
-`POSTGRES_PASSWORD` ve `DEMO_USERS` değerlerini doldurun (örnek ya da çok yaygın parolalarla sistem
+`POSTGRES_PASSWORD`, `REDIS_PASSWORD` ve `DEMO_USERS` değerlerini doldurun (örnek ya da çok yaygın parolalarla sistem
 başlamaz), `deploy` klasöründe
 `docker compose up -d --build` çalıştırın ve <http://localhost:8080> adresini açın. Sunucu eklemek için
 arayüzde **Sunucu ekle** → anahtarı **Kopyala** → depo kökünde
@@ -270,4 +287,4 @@ arayüzde **Sunucu ekle** → anahtarı **Kopyala** → depo kökünde
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). Release notes: [CHANGELOG.md](CHANGELOG.md).

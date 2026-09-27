@@ -1,0 +1,10 @@
+# Development override: additionally publishes PostgreSQL and Redis on loopback (127.0.0.1) for local tools
+# (psql, redis-cli) and the Go integration tests. Not needed to run PulseCraft.
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+services:
+  db:
+    ports:
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
+  redis:
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
