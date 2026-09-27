@@ -1,6 +1,6 @@
 import type { AlertRow, AlertSeverity, AlertStatus, NodeLatest } from '../api/types'
 
-// /ws üzerinden gelen olaylar (sunucudaki realtime.MetricEvent / AlertEvent / RuleEvent ile aynı alan adları).
+// /ws üzerinden gelen olaylar (sunucudaki realtime.MetricEvent / AlertEvent / RuleEvent / NodeEvent ile aynı alan adları).
 
 export interface MetricEvent extends NodeLatest {
   type: 'metric'
@@ -25,7 +25,14 @@ export interface RuleEvent {
   rule_id: number
 }
 
-export type RealtimeEvent = MetricEvent | AlertEvent | RuleEvent
+/** Bir sunucu silindi: ona ait TÜM alarm satırları (geçmiş dahil) sunucuda da silindi. */
+export interface NodeEvent {
+  type: 'node'
+  event: 'deleted'
+  node_id: string
+}
+
+export type RealtimeEvent = MetricEvent | AlertEvent | RuleEvent | NodeEvent
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null
 const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
@@ -125,6 +132,10 @@ export function parseEvent(raw: unknown): RealtimeEvent | null {
 
   if (data.type === 'rule' && data.event === 'deleted' && isNum(data.rule_id)) {
     return { type: 'rule', event: 'deleted', rule_id: data.rule_id }
+  }
+
+  if (data.type === 'node' && data.event === 'deleted' && isStr(data.node_id) && data.node_id !== '') {
+    return { type: 'node', event: 'deleted', node_id: data.node_id }
   }
 
   return null

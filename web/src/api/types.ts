@@ -129,3 +129,10 @@ export interface AlertRule {
   enabled: boolean
   created_at: string
 }
+
+/** POST /api/v1/nodes yanıtı. `api_key` düz metin olarak YALNIZCA bir kez gelir. */
+export interface CreatedNode {
+  id: string
+  name: string
+  api_key: string
+}

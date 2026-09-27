@@ -23,11 +23,16 @@ export interface EventState {
   rows: Readonly<Record<number, OverlayEntry>>
   /** Silinen kuralların id'leri: alarmları sunucuda da silindi, hiçbir kaynaktan gösterilmez. */
   deletedRules: readonly number[]
+  /** Silinen sunucuların id'leri: aynı gerekçeyle (sunucu silinince alarmları cascade ile gider). */
+  deletedNodes: readonly string[]
 }
 
-export const initialEventState: EventState = { seq: 0, rows: {}, deletedRules: [] }
+export const initialEventState: EventState = { seq: 0, rows: {}, deletedRules: [], deletedNodes: [] }
 
-export type EventAction = { type: 'alert'; event: AlertEvent } | { type: 'ruleDeleted'; ruleId: number }
+export type EventAction =
+  | { type: 'alert'; event: AlertEvent }
+  | { type: 'ruleDeleted'; ruleId: number }
+  | { type: 'nodeDeleted'; nodeId: string }
 
 /** Olaydan alarm satırı kurar (olay alarmın tüm alanlarını taşır). */
 export function toRow(event: AlertEvent): AlertRow {
@@ -61,11 +66,19 @@ export function eventReducer(state: EventState, action: EventAction): EventState
     const rows = Object.fromEntries(
       Object.entries(state.rows).filter(([, entry]) => entry.row.rule_id !== action.ruleId),
     )
-    return { seq: state.seq + 1, rows, deletedRules: [...state.deletedRules, action.ruleId] }
+    return { ...state, seq: state.seq + 1, rows, deletedRules: [...state.deletedRules, action.ruleId] }
+  }
+
+  if (action.type === 'nodeDeleted') {
+    if (state.deletedNodes.includes(action.nodeId)) return state
+    const rows = Object.fromEntries(
+      Object.entries(state.rows).filter(([, entry]) => entry.row.node_id !== action.nodeId),
+    )
+    return { ...state, seq: state.seq + 1, rows, deletedNodes: [...state.deletedNodes, action.nodeId] }
   }
 
   const row = toRow(action.event)
-  if (state.deletedRules.includes(row.rule_id)) return state
+  if (state.deletedRules.includes(row.rule_id) || state.deletedNodes.includes(row.node_id)) return state
 
   const existing = state.rows[row.id]?.row
   if (existing !== undefined && STATUS_RANK[row.status] < STATUS_RANK[existing.status]) return state // eski/geç olay
@@ -91,7 +104,9 @@ export function mergeAlerts(snapshot: readonly AlertRow[], startSeq: number, eve
     if (current === undefined || STATUS_RANK[row.status] >= STATUS_RANK[current.status]) byId.set(row.id, row)
   }
 
-  return [...byId.values()].filter((row) => !events.deletedRules.includes(row.rule_id))
+  return [...byId.values()].filter(
+    (row) => !events.deletedRules.includes(row.rule_id) && !events.deletedNodes.includes(row.node_id),
+  )
 }
 
 const SEVERITY_RANK = { critical: 0, warning: 1, info: 2 } as const

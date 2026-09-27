@@ -220,3 +220,62 @@ describe('NodeDetailPage', () => {
     expect(await screen.findByText('Sunucu listesi sayfası')).toBeInTheDocument()
   })
 })
+
+describe('NodeDetailPage: sunucuyu silme', () => {
+  const routes = (extra: Parameters<typeof stubFetch>[0] = {}) =>
+    stubFetch({
+      'GET /api/v1/nodes': nodes(makeNode({ id: 'node-1', name: 'web-01' })),
+      'GET /api/v1/nodes/node-1/metrics?last=15m': raw,
+      ...extra,
+    })
+
+  it('ad birebir yazılmadan "Kalıcı olarak sil" etkin olmaz; "Vazgeç" hiçbir şey silmez', async () => {
+    const { calls } = routes()
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Sunucuyu sil…' }))
+    const confirm = screen.getByRole('button', { name: 'Kalıcı olarak sil' })
+    expect(confirm).toBeDisabled()
+
+    await user.type(screen.getByLabelText('Sunucu adı'), 'web-0')
+    expect(confirm).toBeDisabled()
+    await user.type(screen.getByLabelText('Sunucu adı'), '1 ')
+    expect(confirm).toBeDisabled() // sondaki boşluk: birebir değil
+    await user.clear(screen.getByLabelText('Sunucu adı'))
+    await user.type(screen.getByLabelText('Sunucu adı'), 'web-01')
+    expect(confirm).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: 'Vazgeç' }))
+    expect(screen.queryByRole('button', { name: 'Kalıcı olarak sil' })).not.toBeInTheDocument()
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false)
+  })
+
+  it('onaylanınca DELETE gönderir ve listeye döner', async () => {
+    const { calls } = routes({ 'DELETE /api/v1/nodes/node-1': () => new Response(null, { status: 204 }) })
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Sunucuyu sil…' }))
+    await user.type(screen.getByLabelText('Sunucu adı'), 'web-01')
+    await user.click(screen.getByRole('button', { name: 'Kalıcı olarak sil' }))
+
+    expect(await screen.findByText('Sunucu listesi sayfası')).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/$/)
+    expect(calls.some((c) => c.method === 'DELETE' && c.path === '/api/v1/nodes/node-1')).toBe(true)
+  })
+
+  it('silme başarısız olursa mesaj gösterir ve sayfada kalır', async () => {
+    routes({ 'DELETE /api/v1/nodes/node-1': () => textResponse('sunucu hatası', 500) })
+    renderPage()
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Sunucuyu sil…' }))
+    await user.type(screen.getByLabelText('Sunucu adı'), 'web-01')
+    await user.click(screen.getByRole('button', { name: 'Kalıcı olarak sil' }))
+
+    expect(await screen.findByText('sunucu hatası')).toBeInTheDocument()
+    expect(screen.getByTestId('location')).toHaveTextContent('/nodes/node-1')
+    expect(screen.getByRole('button', { name: 'Kalıcı olarak sil' })).toBeEnabled()
+  })
+})

@@ -50,6 +50,7 @@ export function AlertsProvider({ children, syncMs = ALERTS_SYNC_MS }: AlertsProv
   useRealtimeEvents((event) => {
     if (event.type === 'alert') dispatch({ type: 'alert', event })
     else if (event.type === 'rule') dispatch({ type: 'ruleDeleted', ruleId: event.rule_id })
+    else if (event.type === 'node') dispatch({ type: 'nodeDeleted', nodeId: event.node_id })
   })
 
   // Yeniden bağlanma (epoch) ya da elle istek (manualSync) → yükleme durumuna DÖNMEDEN hemen yeniden eşitle.

@@ -1,7 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { nodesApi } from '../api/nodes'
 import type { NodeSummary } from '../api/types'
-import { useRealtime } from '../realtime/useRealtime'
+import { useRealtime, useRealtimeEvents } from '../realtime/useRealtime'
 import { mergeLive } from './live'
 import { useLiveMetrics } from './useLiveMetrics'
 import { usePolledResource } from './usePolledResource'
@@ -27,12 +27,22 @@ export function useNodes(pollMs: number = NODES_POLL_MS) {
   const { state, reload } = usePolledResource(nodesApi.list, pollMs, 'Sunucu listesi', epoch)
   const live = useLiveMetrics()
 
+  // Başka bir sekmede/kullanıcı tarafından silinen sunucu, bir sonraki yoklamayı beklemeden listeden düşer.
+  const [deleted, setDeleted] = useState<readonly string[]>([])
+  useRealtimeEvents((event) => {
+    if (event.type === 'node') setDeleted((ids) => (ids.includes(event.node_id) ? ids : [...ids, event.node_id]))
+  })
+
   const nodesState = useMemo<NodesState>(
     () =>
       state.status === 'ready'
-        ? { status: 'ready', nodes: mergeLive(state.data, live), refreshError: state.refreshError }
+        ? {
+            status: 'ready',
+            nodes: mergeLive(state.data, live).filter((n) => !deleted.includes(n.id)),
+            refreshError: state.refreshError,
+          }
         : state,
-    [state, live],
+    [state, live, deleted],
   )
 
   return { state: nodesState, reload }

@@ -110,6 +110,21 @@ describe('canlı akış + sunucu listesi', () => {
   })
 })
 
+describe('canlı akış + sunucu silme', () => {
+  it('başka yerde silinen sunucu, yoklamayı beklemeden listeden düşer', async () => {
+    stubFetch({
+      'GET /api/v1/nodes': () => jsonResponse([makeNode({ id: 'n1', name: 'web-01' }), makeNode({ id: 'n2', name: 'db-01' })]),
+    })
+    const { result } = renderHook(() => useNodes(60_000), { wrapper })
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    await openSocket()
+
+    await send({ type: 'node', event: 'deleted', node_id: 'n1' })
+
+    expect(ready(result).map((n) => n.id)).toEqual(['n2'])
+  })
+})
+
 describe('sessizlik zamanlayıcısı', () => {
   it('olay gelmeyince sunucu ZAMANLAYICIYLA çevrimdışı olur; yeni olay onu yeniden çevrimiçi yapar', async () => {
     const { result } = renderHook(() => useLiveMetrics(60), { wrapper })

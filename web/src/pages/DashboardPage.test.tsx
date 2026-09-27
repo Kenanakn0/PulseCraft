@@ -1,5 +1,5 @@
 import { StrictMode } from 'react'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, expect, it } from 'vitest'
@@ -43,6 +43,28 @@ describe('DashboardPage', () => {
     const cards = await screen.findAllByTestId('node-card')
     expect(cards.map((c) => within(c).getByRole('heading').textContent)).toEqual(['api-01', 'web-01', 'db-01'])
     expect(screen.getByTestId('node-summary')).toHaveTextContent('3 sunucu · 2 çevrimiçi')
+  })
+
+  it('"Sunucu ekle" ile eklenen sunucu, anahtar gösterilirken listede belirir', async () => {
+    let list = [makeNode({ id: 'a', name: 'db-01' })]
+    stubFetch({
+      'GET /api/v1/auth/me': me,
+      'GET /api/v1/nodes': () => jsonResponse(list),
+      'POST /api/v1/nodes': () => {
+        list = [...list, makeNode({ id: 'b', name: 'web-01', online: false, latest: null, last_seen_at: null, last_seen_seconds_ago: null })]
+        return jsonResponse({ id: 'b', name: 'web-01', api_key: 'f'.repeat(64) }, 201)
+      },
+    })
+    renderDashboard()
+    const user = userEvent.setup()
+    await screen.findAllByTestId('node-card')
+
+    await user.click(screen.getByRole('button', { name: 'Sunucu ekle' }))
+    await user.type(screen.getByLabelText('Sunucu adı'), 'web-01')
+    await user.click(screen.getByRole('button', { name: 'Ekle' }))
+
+    expect(await screen.findByLabelText('API anahtarı')).toHaveValue('f'.repeat(64))
+    await waitFor(() => expect(screen.getAllByTestId('node-card')).toHaveLength(2))
   })
 
   it('liste boşsa açıklayıcı boş durum gösterir', async () => {

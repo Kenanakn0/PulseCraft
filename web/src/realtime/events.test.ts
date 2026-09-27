@@ -64,6 +64,14 @@ describe('parseEvent', () => {
     })
   })
 
+  it('sunucu silindi olayını çözer', () => {
+    expect(parseEvent(JSON.stringify({ type: 'node', event: 'deleted', node_id: 'n1' }))).toEqual({
+      type: 'node',
+      event: 'deleted',
+      node_id: 'n1',
+    })
+  })
+
   it.each([
     ['metin değil', 42],
     ['json değil', '{bozuk'],
@@ -80,6 +88,9 @@ describe('parseEvent', () => {
     ['alarmda eşik sayı değil', JSON.stringify({ ...alertEventPayload(), threshold: '90' })],
     ['kural olayı: bilinmeyen tür', JSON.stringify({ type: 'rule', event: 'created', rule_id: 5 })],
     ['kural olayı: rule_id yok', JSON.stringify({ type: 'rule', event: 'deleted' })],
+    ['sunucu olayı: node_id yok', JSON.stringify({ type: 'node', event: 'deleted' })],
+    ['sunucu olayı: node_id boş', JSON.stringify({ type: 'node', event: 'deleted', node_id: '' })],
+    ['sunucu olayı: bilinmeyen tür', JSON.stringify({ type: 'node', event: 'created', node_id: 'n1' })],
   ])('reddeder: %s', (_name, raw) => {
     expect(parseEvent(raw)).toBeNull()
   })

@@ -1,4 +1,5 @@
-import { Link, useParams, useSearchParams } from 'react-router'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router'
+import { DeleteNodeSection } from '../components/DeleteNodeSection'
 import { Gauge } from '../components/Gauge'
 import { MetricsPanel } from '../components/MetricsPanel'
 import { RangeSelector } from '../components/RangeSelector'
@@ -20,6 +21,7 @@ export default function NodeDetailPage() {
 
   // Sunucu bilgisi (ad, çevrimiçi durumu, son değerler) liste uç noktasından gelir ve periyodik yenilenir.
   const { state, reload } = useNodes()
+  const navigate = useNavigate()
   const node = state.status === 'ready' ? (state.nodes.find((n) => n.id === id) ?? null) : null
 
   return (
@@ -73,6 +75,9 @@ export default function NodeDetailPage() {
           </div>
 
           <MetricsPanel key={`${id}:${rangeId}`} nodeId={id} rangeId={rangeId} />
+
+          {/* Silinince listeye dönülür; `replace`: geri tuşu artık olmayan sunucunun sayfasına götürmesin. */}
+          <DeleteNodeSection node={node} onDeleted={() => navigate('/', { replace: true })} />
         </>
       )}
     </section>

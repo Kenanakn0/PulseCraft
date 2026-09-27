@@ -1,3 +1,4 @@
+import { AddNodePanel } from '../components/AddNodePanel'
 import { NodeCard } from '../components/NodeCard'
 import { sortNodes } from '../nodes/format'
 import { useNodes } from '../nodes/useNodes'
@@ -16,6 +17,10 @@ export function DashboardPage() {
             {state.nodes.length} sunucu · {state.nodes.filter((n) => n.online).length} çevrimiçi
           </p>
         )}
+      </div>
+
+      <div className="page-actions">
+        <AddNodePanel onCreated={reload} />
       </div>
 
       {state.status === 'loading' && (
@@ -45,8 +50,8 @@ export function DashboardPage() {
             <div className="card">
               <p>Henüz kayıtlı sunucu yok.</p>
               <p className="muted">
-                Bir sunucu eklemek için <code>POST /api/v1/nodes</code> ile bir node oluşturup agent&apos;ı verilen
-                API anahtarıyla çalıştırın.
+                Yukarıdaki <strong>Sunucu ekle</strong> ile bir sunucu oluşturup agent&apos;ı verilen API anahtarıyla
+                çalıştırın.
               </p>
             </div>
           ) : (

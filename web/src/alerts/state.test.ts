@@ -77,6 +77,25 @@ describe('eventReducer', () => {
   })
 })
 
+describe('eventReducer: sunucu silindi', () => {
+  it('o sunucunun satırlarını atar ve sonraki olaylarını yok sayar; tekrarı etkisizdir', () => {
+    let state = apply(initialEventState, event({ id: 1, node_id: 'a' }), event({ id: 2, node_id: 'b' }))
+    state = eventReducer(state, { type: 'nodeDeleted', nodeId: 'a' })
+
+    expect(Object.keys(state.rows)).toEqual(['2'])
+    expect(state.deletedNodes).toEqual(['a'])
+    expect(apply(state, event({ id: 3, node_id: 'a' }))).toBe(state)
+    expect(eventReducer(state, { type: 'nodeDeleted', nodeId: 'a' })).toBe(state)
+  })
+
+  it('kural silindi, önceden silinmiş sunucu listesini kaybetmez (ve tersi)', () => {
+    let state = eventReducer(initialEventState, { type: 'nodeDeleted', nodeId: 'a' })
+    state = eventReducer(state, { type: 'ruleDeleted', ruleId: 10 })
+    expect(state.deletedNodes).toEqual(['a'])
+    expect(state.deletedRules).toEqual([10])
+  })
+})
+
 describe('mergeAlerts', () => {
   it('olay yoksa anlık görüntüyü aynen verir', () => {
     const snapshot = [makeAlert({ id: 1 }), makeAlert({ id: 2 })]
@@ -104,6 +123,16 @@ describe('mergeAlerts', () => {
   it('istek sırasında gelen olay, anlık görüntüdeki geride kalan satırı ilerletir', () => {
     const state = apply(initialEventState, event({ id: 1, status: 'acknowledged', acknowledged_by: 'Ada' }, 'acknowledged'))
     expect(mergeAlerts([makeAlert({ id: 1 })], 0, state)[0]).toMatchObject({ status: 'acknowledged', acknowledged_by: 'Ada' })
+  })
+
+  it('silinen sunucunun alarmları (geçmiş dahil) hiçbir kaynaktan gösterilmez', () => {
+    const state = eventReducer(initialEventState, { type: 'nodeDeleted', nodeId: 'a' })
+    const snapshot = [
+      makeAlert({ id: 1, node_id: 'a' }),
+      makeAlert({ id: 2, node_id: 'a', status: 'resolved', resolved_at: '2030-01-01T10:10:00Z' }),
+      makeAlert({ id: 3, node_id: 'b' }),
+    ]
+    expect(mergeAlerts(snapshot, 0, state).map((a) => a.id)).toEqual([3])
   })
 
   it('silinen kuralın alarmları hiçbir kaynaktan gösterilmez', () => {

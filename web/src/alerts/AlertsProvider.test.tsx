@@ -161,6 +161,23 @@ describe('AlertsProvider', () => {
     expect(alertsOf(result.current.state).map((a) => a.id)).toEqual([2])
   })
 
+  it('sunucu silindi olayı o sunucunun TÜM alarmlarını (çözülenler dahil) kaldırır', async () => {
+    stubFetch(
+      alertRoutes(() => [
+        makeAlert({ id: 1, node_id: 'a' }),
+        makeAlert({ id: 2, node_id: 'a', status: 'resolved', resolved_at: '2030-01-01T10:10:00Z' }),
+        makeAlert({ id: 3, node_id: 'b' }),
+      ]),
+    )
+    const { result } = renderHook(() => useAlerts(), { wrapper: makeWrapper(60_000) })
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    await open()
+
+    await send({ type: 'node', event: 'deleted', node_id: 'a' })
+
+    expect(alertsOf(result.current.state).map((a) => a.id)).toEqual([3])
+  })
+
   it('güvenlik ağı: periyodik eşitleme, olay kaybolmuşsa (Redis kesintisi) listeyi düzeltir', async () => {
     let rows: AlertRow[] = [makeAlert({ id: 1 })]
     stubFetch(alertRoutes(() => rows))

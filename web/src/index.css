@@ -690,3 +690,48 @@ button.danger {
   border-color: var(--error-text);
   color: var(--error-text);
 }
+
+/* --- Sunucu ekle / sil --- */
+.page-actions {
+  margin-bottom: 1rem;
+}
+
+.add-node,
+.key-reveal {
+  max-width: 40rem;
+}
+
+.add-node h2,
+.key-reveal h2,
+.danger-zone h2 {
+  margin-top: 0;
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.key-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+}
+
+pre.command {
+  overflow-x: auto;
+  padding: 0.7rem 0.9rem;
+  border-radius: 8px;
+  background: var(--off-bg);
+  white-space: pre;
+}
+
+.danger-zone {
+  margin-top: 2rem;
+  border: 1px solid var(--error-text);
+}
