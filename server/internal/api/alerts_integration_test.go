@@ -29,13 +29,13 @@ import (
 // Testler kendi node/kural/kullanıcılarını oluşturur ve sonunda siler.
 
 type integration struct {
-	t       *testing.T
-	api     *API
-	router  http.Handler
-	db      *pgxpool.Pool
-	cookie  *http.Cookie
-	userID  int64
-	events  <-chan *redis.Message
+	t      *testing.T
+	api    *API
+	router http.Handler
+	db     *pgxpool.Pool
+	cookie *http.Cookie
+	userID int64
+	events <-chan *redis.Message
 }
 
 func newIntegration(t *testing.T) *integration {

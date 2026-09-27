@@ -31,3 +31,9 @@ Desktop.ini
 # --- Oturum çerezi / token dosyaları (asla repoya girmesin) ---
 cookie.txt
 *.cookie
+
+# --- Playwright oturum durumları (oturum ÇEREZİ içerir) ---
+/web/e2e/.auth/
+
+# --- Agent API anahtarı dosyaları (-api-key-file) — anahtar asla repoya girmez ---
+*.key

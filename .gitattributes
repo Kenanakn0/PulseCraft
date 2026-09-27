@@ -1,0 +1,11 @@
+# Satır sonları: depoda ve çalışma ağacında HER ZAMAN LF. Windows'ta core.autocrlf CRLF'e çevirince gofmt
+# dosyaları "biçimsiz" sayıyordu ve her commit'te "LF will be replaced by CRLF" uyarısı çıkıyordu. CI (Linux)
+# ile yerel ortam aynı baytları görsün diye sabitlendi.
+* text=auto eol=lf
+
+# İkili dosyalar (dönüştürülmez)
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff2 binary

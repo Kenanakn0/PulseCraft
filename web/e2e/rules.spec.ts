@@ -1,18 +1,12 @@
-import { expect, request, test, type APIRequestContext, type Browser } from '@playwright/test'
+import { request, type Browser } from '@playwright/test'
+import { USER1_STATE } from './auth-state'
+import { expect, test } from './fixtures'
 
 const email = process.env.E2E_EMAIL
 const password = process.env.E2E_PASSWORD
 
-let storageState: Awaited<ReturnType<APIRequestContext['storageState']>>
-
-test.beforeAll(async ({ playwright, baseURL }) => {
-  if (!email || !password) return
-  const api = await playwright.request.newContext({ baseURL })
-  const response = await api.post('/api/v1/auth/login', { data: { email, password } })
-  expect(response.ok(), 'API ile giriş').toBe(true)
-  storageState = await api.storageState()
-  await api.dispose()
-})
+// Oturum: setup projesinin bir kez yazdığı çerez (kendi girişimizi yapmayız; bkz. e2e/auth-state.ts).
+const storageState = USER1_STATE
 
 const uniqueName = (prefix: string) => `${prefix}-${Math.random().toString(36).slice(2, 8)}`
 

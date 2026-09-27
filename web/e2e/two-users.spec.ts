@@ -1,4 +1,6 @@
-import { expect, request, test, type APIRequestContext, type Browser, type Page } from '@playwright/test'
+import { request, type APIRequestContext, type Browser, type Page } from '@playwright/test'
+import { USER1_STATE, USER2_STATE } from './auth-state'
+import { expect, test } from './fixtures'
 
 // 4.2d: 4.2/4.2a/4.2b/4.2c'nin BÜTÜNÜNÜ, iki AYRI kullanıcı oturumuyla (iki AYRI JWT, iki AYRI
 // WebSocket bağlantısı) kanıtlar. Önceki testlerde "iki sekme" hep AYNI oturumun kopyasıydı; burada
@@ -27,7 +29,10 @@ interface Session {
   page: Page
 }
 
-async function openSession(browser: Browser, baseURL: string | undefined, storageState: Awaited<ReturnType<typeof loginSession>>): Promise<Session> {
+// storageState: setup projesinin yazdığı dosyanın YOLU ya da bu testte yapılan taze girişin durumu.
+type StorageState = string | Awaited<ReturnType<typeof loginSession>>
+
+async function openSession(browser: Browser, baseURL: string | undefined, storageState: StorageState): Promise<Session> {
   const api = await request.newContext({ baseURL, storageState })
   const context = await browser.newContext({ baseURL, storageState })
   const page = await context.newPage()
@@ -46,12 +51,9 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
   }) => {
     test.setTimeout(30_000)
 
-    const [adaState, bobState] = await Promise.all([
-      loginSession(baseURL, emailA!, passwordA!),
-      loginSession(baseURL, emailB!, passwordB!),
-    ])
-    const ada = await openSession(browser, baseURL, adaState)
-    const bob = await openSession(browser, baseURL, bobState)
+    // Paylaşılan oturumlar (setup projesi her kullanıcı için bir kez giriş yaptı).
+    const ada = await openSession(browser, baseURL, USER1_STATE)
+    const bob = await openSession(browser, baseURL, USER2_STATE)
 
     // Öncül: gerçekten İKİ FARKLI kullanıcı girişi (aynı oturumun iki sekmesi değil).
     await ada.page.goto('/')
@@ -108,7 +110,11 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
 
     // 4.2c: Ada, Kurallar ekranından kuralı DEVRE DIŞI bırakır → alarm çözülür.
     await ada.page.goto('/alert-rules')
-    await ada.page.getByTestId('rule-row').filter({ hasText: ruleName }).getByRole('button', { name: 'Devre dışı bırak' }).click()
+    const adaRuleRow = ada.page.getByTestId('rule-row').filter({ hasText: ruleName })
+    await adaRuleRow.getByRole('button', { name: 'Devre dışı bırak' }).click()
+    // İsteğin BİTTİĞİNİ bekle: hemen başka sayfaya gitmek, tarayıcının yarım kalan PUT isteğini iptal etmesine
+    // (kural kapanmaz, alarm çözülmez) yol açar — bu testteki eski zamanlama kararsızlığının nedeniydi.
+    await expect(adaRuleRow.getByText('Kapalı')).toBeVisible()
 
     // Her iki oturumda da ANINDA "Çözülen"e geçer; Bob'un adı (incelemeyi alan) korunur.
     for (const s of [ada, bob]) {
@@ -137,12 +143,10 @@ test.describe('iki KULLANICILI uçtan uca (4.2 bütünü: kurallar ekranı → a
     browser,
     baseURL,
   }) => {
-    const [adaState, bobState] = await Promise.all([
-      loginSession(baseURL, emailA!, passwordA!),
-      loginSession(baseURL, emailB!, passwordB!),
-    ])
-    const ada = await openSession(browser, baseURL, adaState)
-    const bob = await openSession(browser, baseURL, bobState)
+    // Bob bu testte ÇIKIŞ yapacak: çıkış token'ı (jti) iptal eder. Paylaşılan Bob oturumunu kullanırsak
+    // sonraki testler iptal edilmiş çerezle kalırdı → Bob için TAZE giriş; Ada paylaşılan oturumu kullanır.
+    const ada = await openSession(browser, baseURL, USER1_STATE)
+    const bob = await openSession(browser, baseURL, await loginSession(baseURL, emailB!, passwordB!))
 
     await ada.page.goto('/')
     await bob.page.goto('/')

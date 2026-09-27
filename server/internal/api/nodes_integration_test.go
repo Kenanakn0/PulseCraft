@@ -57,8 +57,12 @@ func TestIntegration_DeleteNode_ResolvesAlertsCascadesAndAnnounces(t *testing.T)
 	if code := c.ingest(keyA, 50); code != http.StatusAccepted {
 		t.Fatalf("A için ölçüm 202 bekleniyordu, %d", code)
 	}
-	c.next(func(ev map[string]any) bool { return ev["node_id"] == nodeA && ev["event"] == "opened" && ev["rule_id"] == float64(global.ID) })
-	c.next(func(ev map[string]any) bool { return ev["node_id"] == nodeA && ev["event"] == "opened" && ev["rule_id"] == float64(scoped.ID) })
+	c.next(func(ev map[string]any) bool {
+		return ev["node_id"] == nodeA && ev["event"] == "opened" && ev["rule_id"] == float64(global.ID)
+	})
+	c.next(func(ev map[string]any) bool {
+		return ev["node_id"] == nodeA && ev["event"] == "opened" && ev["rule_id"] == float64(scoped.ID)
+	})
 	c.sample(nodeB, 50)
 	c.next(forNode(nodeB, "opened"))
 
