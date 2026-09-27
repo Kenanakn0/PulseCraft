@@ -1,5 +1,8 @@
 # PulseCraft
 
+[![CI](https://github.com/Kenanakn0/PulseCraft/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Kenanakn0/PulseCraft/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A self-hosted server monitoring system: a lightweight **Go agent** collects CPU, memory, disk and network
 metrics, a **Go core server** stores them in **TimescaleDB** and evaluates alert rules, and a **React
 dashboard** shows everything live over WebSocket — including a shared alert board where a team can see who
