@@ -2,7 +2,10 @@ module github.com/Kenanakn0/pulsecraft/agent
 
 go 1.27.0
 
-require github.com/shirou/gopsutil/v4 v4.26.8
+require (
+	github.com/shirou/gopsutil/v4 v4.26.8
+	golang.org/x/term v0.46.0
+)
 
 require (
 	github.com/ebitengine/purego v0.10.2 // indirect
@@ -13,5 +16,4 @@ require (
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/term v0.46.0 // indirect
 )

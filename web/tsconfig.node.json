@@ -15,5 +15,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["vite.config.ts", "playwright.config.ts", "playwright.smoke.config.ts", "eslint.config.js", "e2e", "smoke"]
+  "include": ["vite.config.ts", "playwright.config.ts", "playwright.smoke.config.ts", "playwright.docs.config.ts", "eslint.config.js", "e2e", "smoke", "docs-shots"]
 }

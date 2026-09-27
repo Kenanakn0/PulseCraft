@@ -12,7 +12,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "playwright test",
-    "smoke": "playwright test -c playwright.smoke.config.ts"
+    "smoke": "playwright test -c playwright.smoke.config.ts",
+    "docs:shots": "playwright test -c playwright.docs.config.ts"
   },
   "dependencies": {
     "chart.js": "^4.5.1",
