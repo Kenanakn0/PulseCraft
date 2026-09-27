@@ -5,7 +5,7 @@
 # web/Dockerfile.dockerignore limits the context to web/ and the nginx config.
 
 # ---- Build stage: Node stays here and never reaches the runtime image ----
-FROM node:24-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app/web
 
 # Dependency files first, so `npm ci` stays cached when only source files change.
